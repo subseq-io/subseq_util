@@ -1,5 +1,5 @@
 [package]
-name = "prism_util"
+name = "subseq_util"
 version = "0.1.0"
 edition = "2021"
 
