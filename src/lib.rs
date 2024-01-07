@@ -1,5 +1,4 @@
 pub mod api;
-pub mod auth;
 pub mod oidc;
 pub mod router;
 pub mod schema;
