@@ -56,7 +56,7 @@ pub struct OidcCredentials {
 }
 
 impl OidcCredentials {
-    pub fn new<A: Into<String>, B: Into<String>, C: Into<String>, D: Into<String>>
+    pub fn new<A: Into<String>, B: Into<String>, C: Into<String>>
             (client_id: A, client_secret: B, redirect_url: C) -> AnyResult<Self> {
         Ok(Self { client_id: ClientId::new(client_id.into()),
                   client_secret: ClientSecret::new(client_secret.into()),
