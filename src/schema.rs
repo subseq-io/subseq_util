@@ -13,12 +13,10 @@ pub mod auth {
             created -> Timestamp,
         }
     }
+    diesel::joinable!(user_id_accounts -> users (user_id));
 
     diesel::allow_tables_to_appear_in_same_query!(
         user_id_accounts,
         users,
     );
 }
-
-pub use auth::users as users;
-pub use auth::user_id_accounts as user_id_accounts;

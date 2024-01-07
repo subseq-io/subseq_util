@@ -8,13 +8,13 @@ pub mod sessions;
 
 use self::sessions::CsrfMismatch;
 pub use self::sessions::{
+    AuthenticatedUser,
     InvalidSessionToken,
     NoSessionToken,
-    AuthenticatedUser,
-    SessionsError,
     OidcError,
+    SessionsError,
     TokenTransferFailed,
-    authenticate
+    authenticate,
 };
 
 #[derive(Debug)]
