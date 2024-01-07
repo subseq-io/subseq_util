@@ -19,3 +19,6 @@ pub mod auth {
         users,
     );
 }
+
+pub use auth::users as users;
+pub use auth::user_id_accounts as user_id_accounts;
