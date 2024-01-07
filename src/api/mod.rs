@@ -4,7 +4,8 @@ use std::sync::Arc;
 use warp::Filter;
 use tokio::sync::broadcast;
 
-pub mod sessions;
+pub mod sessions; 
+pub mod users;
 
 use self::sessions::CsrfMismatch;
 pub use self::sessions::{

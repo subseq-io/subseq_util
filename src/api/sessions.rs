@@ -185,25 +185,18 @@ pub fn with_idp(idp: Arc<IdentityProvider>)
     warp::any().map(move || idp.clone())
 }
 
-pub fn with_session(session: SessionWithStore<MemoryStore>)
-    -> impl Filter<Extract = (SessionWithStore<MemoryStore>,),
-                   Error = std::convert::Infallible> + Clone 
-{
-    warp::any().map(move || session.clone())
-}
-
-pub fn routes(session: SessionWithStore<MemoryStore>,
+pub fn routes(session: MemoryStore,
               idp: Arc<IdentityProvider>) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     let login = warp::get()
         .and(warp::path("login"))
-        .and(with_session(session.clone()))
+        .and(warp_sessions::request::with_session(session.clone(), None))
         .and(with_idp(idp.clone()))
         .and_then(login_handler);
 
     let auth = warp::get()
         .and(warp::path("auth"))
         .and(warp::query::<AuthQuery>())
-        .and(with_session(session.clone()))
+        .and(warp_sessions::request::with_session(session.clone(), None))
         .and(with_idp(idp.clone()))
         .and_then(auth_handler);
 
