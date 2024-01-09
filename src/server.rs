@@ -10,6 +10,7 @@ pub trait EnvFilledConfig: Sized {
 pub struct TlsConfig {
     pub cert_path: String,
     pub key_path: String,
+    pub ca_path: String,
 }
 
 impl EnvFilledConfig for TlsConfig {
@@ -17,6 +18,7 @@ impl EnvFilledConfig for TlsConfig {
         Ok(Self {
             cert_path: env::var("SERVER_TLS_CERT").unwrap_or(self.cert_path),
             key_path: env::var("SERVER_TLS_KEY").unwrap_or(self.key_path),
+            ca_path: env::var("SERVER_TLS_CA").unwrap_or(self.ca_path),
         })
     }
 }
