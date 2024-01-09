@@ -1,6 +1,6 @@
-use std::time::Duration;
 use diesel::pg::PgConnection;
 use diesel::r2d2::{ConnectionManager, Pool};
+use std::time::Duration;
 
 pub mod users;
 pub use users::User;
@@ -14,14 +14,17 @@ pub async fn establish_connection_pool(database_url: &str) -> DbPool {
     match tokio::time::timeout(DB_TIMEOUT, pool_async).await {
         Ok(Ok(pool)) => pool.expect("Could not establish database connection"),
         Ok(Err(err)) => panic!("Database connection task failed: {:?}", err),
-        Err(_) => panic!("Database connection timed out after {} secs", DB_TIMEOUT.as_secs())
+        Err(_) => panic!(
+            "Database connection timed out after {} secs",
+            DB_TIMEOUT.as_secs()
+        ),
     }
 }
 
 pub struct ValidationErrorMessage {
     pub message: String,
     pub column: String,
-    pub constraint_name: String
+    pub constraint_name: String,
 }
 
 impl diesel::result::DatabaseErrorInformation for ValidationErrorMessage {

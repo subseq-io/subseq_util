@@ -1,11 +1,10 @@
+use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
-use chrono::NaiveDateTime;
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
 use super::ValidationErrorMessage;
-
 
 #[derive(PartialEq, Queryable, Insertable, Clone, Debug, Serialize)]
 #[diesel(table_name = crate::schema::auth::user_id_accounts)]
@@ -24,16 +23,16 @@ pub struct User {
 
 impl PartialEq for User {
     fn eq(&self, other: &Self) -> bool {
-        self.id == other.id &&
-            self.email == other.email &&
-            self.created.timestamp_micros() == other.created.timestamp_micros()
+        self.id == other.id
+            && self.email == other.email
+            && self.created.timestamp_micros() == other.created.timestamp_micros()
     }
 }
 
 impl User {
     pub fn from_username(conn: &mut PgConnection, username: &str) -> Option<Self> {
-        use crate::schema::auth::users;
         use crate::schema::auth::user_id_accounts;
+        use crate::schema::auth::users;
         let (_account, user): (UserIdAccount, User) = user_id_accounts::table
             .inner_join(users::table.on(users::id.eq(user_id_accounts::user_id)))
             .filter(user_id_accounts::username.eq(username))
@@ -55,23 +54,26 @@ impl User {
 
     fn is_valid_username(username: &str) -> bool {
         let first_char_is_alpha = username.chars().next().map_or(false, |c| c.is_alphabetic());
-        username.chars().all(|c| c.is_alphanumeric() || c == '_') && 
-        username == username.to_lowercase() && 
-        !username.contains(' ') && 
-        first_char_is_alpha
+        username.chars().all(|c| c.is_alphanumeric() || c == '_')
+            && username == username.to_lowercase()
+            && !username.contains(' ')
+            && first_char_is_alpha
     }
 
-    pub fn create(conn: &mut PgConnection,
-                  sender: &mut broadcast::Sender<Self>,
-                  email: &str,
-                  username: Option<&str>) -> QueryResult<Self> {
-
+    pub fn create(
+        conn: &mut PgConnection,
+        sender: &mut broadcast::Sender<Self>,
+        email: &str,
+        username: Option<&str>,
+    ) -> QueryResult<Self> {
         if let Some(username) = username {
             if !Self::is_valid_username(username) {
                 let kind = diesel::result::DatabaseErrorKind::CheckViolation;
-                let msg = Box::new(ValidationErrorMessage{message: "Invalid username".to_string(),
-                                                          column: "username".to_string(),
-                                                          constraint_name: "username_limits".to_string()});
+                let msg = Box::new(ValidationErrorMessage {
+                    message: "Invalid username".to_string(),
+                    column: "username".to_string(),
+                    constraint_name: "username_limits".to_string(),
+                });
                 return Err(diesel::result::Error::DatabaseError(kind, msg));
             }
         }
@@ -79,7 +81,7 @@ impl User {
         let user = User {
             id: Uuid::new_v4(),
             email: email.to_owned(),
-            created: chrono::Utc::now().naive_utc()
+            created: chrono::Utc::now().naive_utc(),
         };
 
         diesel::insert_into(crate::schema::auth::users::table)
@@ -88,7 +90,7 @@ impl User {
         if let Some(username) = username {
             let user_id_account = UserIdAccount {
                 user_id: user.id,
-                username: username.to_ascii_lowercase()
+                username: username.to_ascii_lowercase(),
             };
             diesel::insert_into(crate::schema::auth::user_id_accounts::table)
                 .values(&user_id_account)
@@ -110,15 +112,14 @@ impl User {
             .map(|user| user.into())
     }
 
-    pub fn list(conn: &mut PgConnection,
-                page: u32,
-                page_size: u32) -> Vec<Self> {
+    pub fn list(conn: &mut PgConnection, page: u32, page_size: u32) -> Vec<Self> {
         use crate::schema::auth::users::dsl::users;
         let offset = page.saturating_sub(1) * page_size;
         match users
-                .limit(page_size as i64)
-                .offset(offset as i64)
-                .load::<User>(conn) {
+            .limit(page_size as i64)
+            .offset(offset as i64)
+            .load::<User>(conn)
+        {
             Ok(list) => list.into_iter().map(|user| user.into()).collect(),
             Err(err) => {
                 tracing::warn!("DB List Query Failed: {:?}", err);
@@ -139,13 +140,27 @@ mod test {
     fn test_user_handle() {
         let db_name = to_pg_db_name(function_name!());
         let harness = DbHarness::new("localhost", "development", &db_name);
-        let mut conn = harness.conn(); 
+        let mut conn = harness.conn();
         let (mut tx, _) = broadcast::channel(1);
-        let user = User::create(&mut conn, &mut tx, "test@example.com", Some("test_user"), Some("password")).expect("user");
+        let user = User::create(
+            &mut conn,
+            &mut tx,
+            "test@example.com",
+            Some("test_user"),
+            Some("password"),
+        )
+        .expect("user");
         let user2 = User::get(&mut conn, user.id).expect("user2");
         assert_eq!(user, user2);
 
-        assert!(User::create(&mut conn, &mut tx, "bad_user@example.com", Some("2bad_user"), None).is_err());
+        assert!(User::create(
+            &mut conn,
+            &mut tx,
+            "bad_user@example.com",
+            Some("2bad_user"),
+            None
+        )
+        .is_err());
         assert!(User::create(&mut conn, &mut tx, "bad_email", Some("bad_user"), None).is_err());
     }
 }

@@ -14,15 +14,13 @@ pub fn setup_tracing(app_name: &str) {
         let filter_layer = EnvFilter::new(format!("{}=debug", app_name));
         tracing_subscriber::registry()
             .with(filter_layer)
-         //   .with(console_layer)
+            //   .with(console_layer)
             .with(tracing_layer)
             .init();
     }
     #[cfg(not(debug_assertions))]
     {
-        let tracing_layer = tracing_subscriber::fmt::layer()
-            .compact()
-            .with_level(true);
+        let tracing_layer = tracing_subscriber::fmt::layer().compact().with_level(true);
 
         let filter_layer = EnvFilter::new(format!("{}=debug", app_name));
         tracing_subscriber::registry()

@@ -1,5 +1,5 @@
-use std::env;
 use serde::Deserialize;
+use std::env;
 use url::Url;
 
 pub trait EnvFilledConfig: Sized {
@@ -34,9 +34,9 @@ impl EnvFilledConfig for PrismConfig {
         let port = match env::var("PRISM_PORT") {
             Ok(port) => match port.parse::<u16>() {
                 Ok(port) => port,
-                Err(_) => self.port
+                Err(_) => self.port,
             },
-            Err(_) => self.port
+            Err(_) => self.port,
         };
         Ok(Self {
             host: env::var("PRISM_HOST").unwrap_or(self.host),
@@ -57,9 +57,9 @@ impl EnvFilledConfig for OidcConfig {
         let idp_url = match env::var("OIDC_IDP_URL") {
             Ok(url) => match Url::parse(&url) {
                 Ok(url) => url,
-                Err(_) => self.idp_url
-            }
-            Err(_) => self.idp_url
+                Err(_) => self.idp_url,
+            },
+            Err(_) => self.idp_url,
         };
 
         Ok(Self {
@@ -76,7 +76,7 @@ pub struct DatabaseConfig {
     pub password: Option<String>,
     pub host: String,
     pub port: u16,
-    pub require_ssl: bool
+    pub require_ssl: bool,
 }
 
 impl EnvFilledConfig for DatabaseConfig {
@@ -84,9 +84,9 @@ impl EnvFilledConfig for DatabaseConfig {
         let port = match env::var("PGPORT") {
             Ok(port) => match port.parse::<u16>() {
                 Ok(port) => port,
-                Err(_) => self.port
+                Err(_) => self.port,
             },
-            Err(_) => self.port
+            Err(_) => self.port,
         };
         Ok(Self {
             username: env::var("PGUSER").unwrap_or(self.username),
@@ -95,7 +95,7 @@ impl EnvFilledConfig for DatabaseConfig {
             port,
             require_ssl: env::var("PGREQUIRESSL")
                 .map(|y| !y.is_empty())
-                .unwrap_or(false)
+                .unwrap_or(false),
         })
     }
 }
@@ -103,13 +103,15 @@ impl EnvFilledConfig for DatabaseConfig {
 impl DatabaseConfig {
     pub fn db_url(self, database: &str) -> String {
         let ssl_string = "?sslmode=require";
-        format!("postgres://{}:{}@{}:{}/{}{}",
-                self.username,
-                self.password.expect("No password for database!"),
-                self.host,
-                self.port,
-                database,
-                if self.require_ssl {ssl_string} else {""})
+        format!(
+            "postgres://{}:{}@{}:{}/{}{}",
+            self.username,
+            self.password.expect("No password for database!"),
+            self.host,
+            self.port,
+            database,
+            if self.require_ssl { ssl_string } else { "" }
+        )
     }
 }
 
@@ -136,7 +138,7 @@ impl TryFrom<BaseConfig> for InnerConfig {
             tls: conf.tls.fill_from_env()?,
             prism: conf.prism.fill_from_env()?,
             oidc: conf.oidc.fill_from_env()?,
-            database: conf.database.fill_from_env()?
+            database: conf.database.fill_from_env()?,
         })
     }
 }
