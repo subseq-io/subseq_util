@@ -1,3 +1,9 @@
+use std::fs::File;
+use std::io::BufReader;
+use std::path::PathBuf;
+use std::sync::Once;
+use rustls_pemfile::certs;
+
 use anyhow::{anyhow, Result as AnyResult};
 use openidconnect::{
     AccessToken,
@@ -6,13 +12,15 @@ use openidconnect::{
     ClientId,
     ClientSecret,
     CsrfToken,
+    HttpRequest,
+    HttpResponse,
     IssuerUrl,
     Nonce,
     OAuth2TokenResponse,
     PkceCodeChallenge,
     PkceCodeVerifier,
-    RefreshToken,
     RedirectUrl,
+    RefreshToken,
     Scope,
     TokenResponse,
 };
@@ -24,9 +32,76 @@ use openidconnect::core::{
     CoreProviderMetadata,
     CoreTokenResponse
 };
-use openidconnect::reqwest::async_http_client;
+use openidconnect::reqwest::Error as RequestError;
+use reqwest::{Certificate, Client, redirect::Policy};
 use serde::{Deserialize, Serialize};
 use url::Url;
+
+
+pub struct ClientPool {
+    certs: Vec<Certificate>
+}
+
+impl ClientPool {
+    pub fn new_client(&self) -> Client {
+        let mut builder = Client::builder()
+            .https_only(true)
+            .redirect(Policy::none())
+            .tcp_nodelay(true)
+            .tls_built_in_root_certs(false);
+        for cert in self.certs.iter() {
+            builder = builder.add_root_certificate(cert.clone());
+        }
+        builder.build().unwrap()
+    }
+}
+
+static INIT: Once = Once::new();
+static mut CLIENT_POOL: Option<ClientPool> = None;
+
+
+pub fn init_client_pool<P: Into<PathBuf>>(ca_path: P) {
+    INIT.call_once(|| {
+        // Load the certificate
+        let ca_file = File::open(ca_path.into()).expect("Failed to open CA cert file");
+        let mut ca_reader = BufReader::new(ca_file);
+        let ca_certs = certs(&mut ca_reader).unwrap().into_iter();
+
+        let mut certs: Vec<Certificate> = vec![];
+        for cert in ca_certs {
+            certs.push(Certificate::from_der(cert.as_slice()).expect("Invalid certificate"));
+        }
+
+        unsafe {
+            CLIENT_POOL = Some(ClientPool{certs});
+        }
+    });
+}
+
+pub async fn async_http_client(
+    request: HttpRequest,
+) -> Result<HttpResponse, RequestError<reqwest::Error>> {
+    let client = unsafe {CLIENT_POOL.as_ref().unwrap().new_client()};
+
+    let mut request_builder = client
+        .request(request.method, request.url.as_str())
+        .body(request.body);
+    for (name, value) in &request.headers {
+        request_builder = request_builder.header(name.as_str(), value.as_bytes());
+    }
+    let request = request_builder.build().map_err(RequestError::Reqwest)?;
+
+    let response = client.execute(request).await.map_err(RequestError::Reqwest)?;
+
+    let status_code = response.status();
+    let headers = response.headers().to_owned();
+    let chunks = response.bytes().await.map_err(RequestError::Reqwest)?;
+    Ok(HttpResponse {
+        status_code,
+        headers,
+        body: chunks.to_vec(),
+    })
+}
 
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
