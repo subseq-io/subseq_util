@@ -1,4 +1,5 @@
 use tracing_subscriber::prelude::*;
+use tracing_subscriber::filter::EnvFilter;
 
 pub fn setup_tracing(app_name: &str) {
     #[cfg(debug_assertions)]
@@ -12,7 +13,6 @@ pub fn setup_tracing(app_name: &str) {
 
         #[cfg(console)]
         {
-            use tracing_subscriber::filter::EnvFilter;
             let console_layer = console_subscriber::spawn();
             let filter_layer = EnvFilter::new(format!("{}=debug,subseq_util=debug", app_name));
             tracing_subscriber::registry()
@@ -23,7 +23,6 @@ pub fn setup_tracing(app_name: &str) {
         }
         #[cfg(not(console))]
         {
-            use tracing_subscriber::filter::EnvFilter;
             let filter_layer = EnvFilter::new(format!("{}=debug", app_name));
             tracing_subscriber::registry()
                 .with(filter_layer)
