@@ -23,7 +23,7 @@ pub fn setup_tracing(app_name: &str) {
         }
         #[cfg(not(console))]
         {
-            let filter_layer = EnvFilter::new(format!("{}=debug", app_name));
+            let filter_layer = EnvFilter::new(format!("{}=debug,subseq_util=debug", app_name));
             tracing_subscriber::registry()
                 .with(filter_layer)
                 .with(tracing_layer)
@@ -34,7 +34,7 @@ pub fn setup_tracing(app_name: &str) {
     {
         let tracing_layer = tracing_subscriber::fmt::layer().compact().with_level(true);
 
-        let filter_layer = EnvFilter::new(format!("{}=debug", app_name));
+        let filter_layer = EnvFilter::new(format!("{}=info,subseq_util=info", app_name));
         tracing_subscriber::registry()
             .with(filter_layer)
             .with(tracing_layer)
