@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use reqwest::header::{HeaderMap, HeaderValue};
 use tokio::sync::broadcast;
-use warp::{Filter, Reply};
+use warp::{Filter, Reply, http::StatusCode};
 use warp_sessions::MemoryStore;
 
 pub mod sessions;
@@ -55,6 +55,10 @@ pub fn with_broadcast<M: Send + Sync + Clone + 'static>(
 pub async fn handle_rejection(
     err: warp::reject::Rejection,
 ) -> Result<Box<dyn warp::Reply>, std::convert::Infallible> {
+    if err.is_not_found() {
+        return Ok(Box::new(warp::reply::with_status("NOT_FOUND", StatusCode::NOT_FOUND)));
+    }
+
     if let Some(_) = err.find::<NoSessionToken>() {
         let auth_path = warp::http::Uri::try_from("/auth/login").expect("uri failed");
         let mut no_cache_headers = HeaderMap::new();

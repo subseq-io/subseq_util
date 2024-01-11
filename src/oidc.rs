@@ -134,7 +134,7 @@ pub struct IdentityProvider {
 
 impl IdentityProvider {
     pub async fn new(oidc: &OidcCredentials, base_url: &str) -> AnyResult<Self> {
-        tracing::info!("base: {}", base_url);
+        tracing::info!("OIDC server: {}", base_url);
         let base_url = Url::parse(base_url)?;
         let config = provider_metadata(&base_url).await?;
         let client = CoreClient::from_provider_metadata(
@@ -158,7 +158,6 @@ impl IdentityProvider {
             auth_builder = auth_builder.add_scope(Scope::new(scope));
         }
         let (auth_url, csrf_token, nonce) = auth_builder.set_pkce_challenge(challenge).url();
-        tracing::info!("auth: {}", auth_url);
         (auth_url, csrf_token, verifier, nonce)
     }
 

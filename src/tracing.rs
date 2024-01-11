@@ -1,4 +1,4 @@
-use tracing_subscriber::{prelude::*, EnvFilter};
+use tracing_subscriber::prelude::*;
 
 pub fn setup_tracing(app_name: &str) {
     #[cfg(debug_assertions)]
@@ -10,13 +10,26 @@ pub fn setup_tracing(app_name: &str) {
             .with_line_number(true)
             .with_file(true);
 
-        //let console_layer = console_subscriber::spawn();
-        let filter_layer = EnvFilter::new(format!("{}=debug", app_name));
-        tracing_subscriber::registry()
-            .with(filter_layer)
-            //   .with(console_layer)
-            .with(tracing_layer)
-            .init();
+        #[cfg(console)]
+        {
+            use tracing_subscriber::filter::EnvFilter;
+            let console_layer = console_subscriber::spawn();
+            let filter_layer = EnvFilter::new(format!("{}=debug,subseq_util=debug", app_name));
+            tracing_subscriber::registry()
+                .with(filter_layer)
+                .with(console_layer)
+                .with(tracing_layer)
+                .init();
+        }
+        #[cfg(not(console))]
+        {
+            use tracing_subscriber::filter::EnvFilter;
+            let filter_layer = EnvFilter::new(format!("{}=debug", app_name));
+            tracing_subscriber::registry()
+                .with(filter_layer)
+                .with(tracing_layer)
+                .init();
+        }
     }
     #[cfg(not(debug_assertions))]
     {

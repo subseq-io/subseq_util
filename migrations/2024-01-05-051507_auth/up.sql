@@ -7,13 +7,7 @@ CREATE TABLE auth.users (
 );
 
 CREATE TABLE auth.user_id_accounts (
-    user_id UUID NOT NULL REFERENCES users(id),
+    user_id UUID NOT NULL REFERENCES auth.users(id),
     username VARCHAR NOT NULL UNIQUE,
     PRIMARY KEY (user_id, username)
-);
-
-INSERT INTO auth.users (id, email, created) VALUES (
-    '00000000-0000-0000-0000-000000000000'::uuid,
-    'support@subseq.io',
-    NOW()
 );
