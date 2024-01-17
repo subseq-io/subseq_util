@@ -11,6 +11,7 @@ use super::ValidationErrorMessage;
 pub struct UserIdAccount {
     pub user_id: Uuid,
     pub username: String,
+    pub account_type: Option<String>
 }
 
 #[derive(Queryable, Insertable, Clone, Debug, Serialize, Deserialize)]
@@ -91,6 +92,7 @@ impl User {
             let user_id_account = UserIdAccount {
                 user_id: user.id,
                 username: username.to_ascii_lowercase(),
+                account_type: None
             };
             diesel::insert_into(crate::schema::auth::user_id_accounts::table)
                 .values(&user_id_account)

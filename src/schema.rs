@@ -1,8 +1,12 @@
+// @generated automatically by Diesel CLI.
+
 pub mod auth {
     diesel::table! {
         auth.user_id_accounts (user_id, username) {
             user_id -> Uuid,
             username -> Varchar,
+            #[max_length = 10]
+            account_type -> Nullable<Varchar>,
         }
     }
 
@@ -13,7 +17,11 @@ pub mod auth {
             created -> Timestamp,
         }
     }
+
     diesel::joinable!(user_id_accounts -> users (user_id));
 
-    diesel::allow_tables_to_appear_in_same_query!(user_id_accounts, users,);
+    diesel::allow_tables_to_appear_in_same_query!(
+        user_id_accounts,
+        users,
+    );
 }
