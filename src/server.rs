@@ -116,17 +116,11 @@ impl DatabaseConfig {
 }
 
 #[derive(Deserialize)]
-pub struct VoiceConfig {
-    pub voice_url: Url
-}
-
-#[derive(Deserialize)]
 pub struct BaseConfig {
     pub tls: TlsConfig,
     pub prism: PrismConfig,
     pub oidc: OidcConfig,
     pub database: DatabaseConfig,
-    pub voice: VoiceConfig,
 }
 
 pub struct InnerConfig {
@@ -134,7 +128,6 @@ pub struct InnerConfig {
     pub prism: PrismConfig,
     pub oidc: OidcConfig,
     pub database: DatabaseConfig,
-    pub voice: VoiceConfig,
 }
 
 impl TryFrom<BaseConfig> for InnerConfig {
@@ -146,7 +139,6 @@ impl TryFrom<BaseConfig> for InnerConfig {
             prism: conf.prism.fill_from_env()?,
             oidc: conf.oidc.fill_from_env()?,
             database: conf.database.fill_from_env()?,
-            voice: conf.voice
         })
     }
 }
