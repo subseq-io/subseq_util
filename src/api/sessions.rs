@@ -236,7 +236,7 @@ async fn no_auth_login_handler() -> Result<impl Reply, Rejection> {
     let login_form = r#"
         <html>
             <body>
-                <form action="/auth" method="post>
+                <form action="/auth" method="post">
                     <label for="user_id">User ID</label>
                     <input type="text" id="user_id" name="user_id" required minlength="36" size="36" />
                     <input type="submit" value="Submit" />
