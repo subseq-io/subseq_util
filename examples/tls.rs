@@ -1,10 +1,8 @@
 use std::env;
 use std::fs::File;
-use std::sync::Arc;
 
 use subseq_util::{
     api::{authenticate, handle_rejection, init_session_store, sessions, AuthenticatedUser},
-    oidc::{init_client_pool, IdentityProvider, OidcCredentials},
     tracing::setup_tracing,
     BaseConfig, InnerConfig,
 };
@@ -26,25 +24,11 @@ async fn main() {
         .try_into()
         .expect("Could not fetch all secrets from environment");
 
-    // OIDC
-    init_client_pool(&conf.tls.ca_path);
-    let redirect_url = "https://localhost:8443/auth";
-    let oidc = OidcCredentials::new(
-        &conf.oidc.client_id,
-        &conf.oidc.client_secret.expect("No OIDC Client Secret"),
-        redirect_url,
-    )
-    .expect("Invalid OIDC Credentials");
-    let idp = IdentityProvider::new(&oidc, &conf.oidc.idp_url.to_string())
-        .await
-        .expect("Failed to establish Identity Provider connection");
-    let idp = Arc::new(idp);
-
     // Routes
     let session = init_session_store();
-    let routes = sessions::routes(session.clone(), idp.clone())
+    let routes = sessions::no_auth_routes(session.clone())
         .or(warp::get()
-            .and(authenticate(idp.clone(), session.clone()))
+            .and(authenticate(None, session.clone()))
             .and_then(hello_world))
         .recover(handle_rejection);
 

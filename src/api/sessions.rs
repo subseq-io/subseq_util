@@ -183,7 +183,7 @@ fn parse_auth_cookie(cookie_str: &str) -> Result<OidcToken, Rejection> {
 }
 
 pub fn authenticate(
-    idp: Arc<IdentityProvider>,
+    idp: Option<Arc<IdentityProvider>>,
     session: MemoryStore,
 ) -> impl Filter<Extract = (AuthenticatedUser,), Error = Rejection> + Clone {
     warp::any()
@@ -212,9 +212,15 @@ pub fn authenticate(
                         }
                     };
 
-                    let token = parse_auth_cookie(&token)?;
-                    AuthenticatedUser::validate_session(idp, token)
-                        .ok_or_else(|| warp::reject::custom(InvalidSessionToken))
+                    if let Some(idp) = idp {
+                        let token = parse_auth_cookie(&token)?;
+                        AuthenticatedUser::validate_session(idp, token)
+                            .ok_or_else(|| warp::reject::custom(InvalidSessionToken))
+                    } else {
+                        let NoAuthToken { user_id } = serde_json::from_str(&token)
+                            .map_err(|_| warp::reject::custom(InvalidSessionToken))?;
+                        Ok(AuthenticatedUser(user_id))
+                    }
                 }
             },
         )
@@ -224,6 +230,60 @@ pub fn with_idp(
     idp: Arc<IdentityProvider>,
 ) -> impl Filter<Extract = (Arc<IdentityProvider>,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || idp.clone())
+}
+
+async fn no_auth_login_handler() -> Result<impl Reply, Rejection> {
+    let login_form = r#"
+        <html>
+            <body>
+                <form action="/auth" method="post>
+                    <input type="text" name="user_id">
+                    <input type="submit" value="Submit">
+                </form>
+            </body>
+        </html>
+    "#;
+    Ok(warp::reply::html(login_form))
+}
+
+#[derive(Deserialize)]
+struct FormData {
+    user_id: String
+}
+
+#[derive(Deserialize, Serialize)]
+struct NoAuthToken {
+    user_id: Uuid
+}
+
+async fn no_auth_form_handler(mut session: SessionWithStore<MemoryStore>, form: FormData)
+    -> Result<(impl Reply, SessionWithStore<MemoryStore>), Rejection>
+{
+    let user_id = Uuid::parse_str(&form.user_id)
+        .map_err(|_| warp::reject::custom(InvalidCredentials{}))?;
+    let token = NoAuthToken{user_id};
+    let token_serialized = serde_json::to_string(&token).expect("Serialization error");
+    let cookie = Cookie::build((AUTH_COOKIE, token_serialized.as_str()))
+        .http_only(true)
+        .same_site(SameSite::Lax)
+        .secure(true)
+        .build();
+
+    let cookie_content = cookie.to_string();
+
+    let original_path = match session.session.get::<String>("redirect_path") {
+        Some(path) => path,
+        None => String::from("/"),
+    };
+    let redirect = format!(
+        "<html><head><meta http-equiv=\"refresh\" content=\"0; URL='{}'\"/></head></html>",
+        original_path
+    );
+    session.session.regenerate();
+    Ok((
+        warp::reply::with_header(warp::reply::html(redirect), "Set-Cookie", cookie_content),
+        session,
+    ))
 }
 
 pub fn routes(
@@ -245,6 +305,21 @@ pub fn routes(
         .and_then(auth_handler)
         .untuple_one()
         .and_then(warp_sessions::reply::with_session);
+    warp::path("auth").and(login.or(auth))
+}
 
+
+pub fn no_auth_routes(
+    session: MemoryStore,
+) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+    let login = warp::get()
+        .and(warp::path("login"))
+        .and_then(no_auth_login_handler);
+    let auth = warp::post()
+        .and(warp_sessions::request::with_session(session.clone(), None))
+        .and(warp::body::form())
+        .and_then(no_auth_form_handler)
+        .untuple_one()
+        .and_then(warp_sessions::reply::with_session);
     warp::path("auth").and(login.or(auth))
 }
