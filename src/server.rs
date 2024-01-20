@@ -117,14 +117,14 @@ impl DatabaseConfig {
 
 #[derive(Deserialize)]
 pub struct BaseConfig {
-    pub tls: TlsConfig,
+    pub tls: Option<TlsConfig>,
     pub prism: PrismConfig,
     pub oidc: Option<OidcConfig>,
     pub database: DatabaseConfig,
 }
 
 pub struct InnerConfig {
-    pub tls: TlsConfig,
+    pub tls: Option<TlsConfig>,
     pub prism: PrismConfig,
     pub oidc: Option<OidcConfig>,
     pub database: DatabaseConfig,
@@ -135,7 +135,10 @@ impl TryFrom<BaseConfig> for InnerConfig {
 
     fn try_from(conf: BaseConfig) -> Result<Self, Self::Error> {
         Ok(Self {
-            tls: conf.tls.fill_from_env()?,
+            tls: match conf.tls {
+                Some(tls) => Some(tls.fill_from_env()?),
+                None => None,
+            },
             prism: conf.prism.fill_from_env()?,
             oidc: match conf.oidc {
                 Some(oidc) => Some(oidc.fill_from_env()?),

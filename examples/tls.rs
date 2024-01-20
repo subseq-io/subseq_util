@@ -23,6 +23,7 @@ async fn main() {
     let conf: InnerConfig = conf
         .try_into()
         .expect("Could not fetch all secrets from environment");
+    let tls_conf = conf.tls.as_ref().expect("Must define TLS conf for this example");
 
     // Routes
     let session = init_session_store();
@@ -34,8 +35,8 @@ async fn main() {
 
     warp::serve(routes)
         .tls()
-        .cert_path(&conf.tls.cert_path)
-        .key_path(&conf.tls.key_path)
+        .cert_path(tls_conf.cert_path.as_str())
+        .key_path(tls_conf.key_path.as_str())
         .run(([127, 0, 0, 1], 8443))
         .await;
 }

@@ -27,8 +27,10 @@ async fn main() {
         .expect("Could not fetch all secrets from environment");
 
     // OIDC
-    init_client_pool(&conf.tls.ca_path);
+    let tls_conf = conf.tls.as_ref().expect("Must define TLS for this example");
     let oidc_conf = conf.oidc.as_ref().expect("Must define OIDC for this example");
+
+    init_client_pool(tls_conf.ca_path.as_str());
     let redirect_url = "https://localhost:8443/auth";
     let oidc = OidcCredentials::new(
         oidc_conf.client_id.clone(),
@@ -51,8 +53,8 @@ async fn main() {
 
     warp::serve(routes)
         .tls()
-        .cert_path(&conf.tls.cert_path)
-        .key_path(&conf.tls.key_path)
+        .cert_path(tls_conf.cert_path.as_str())
+        .key_path(tls_conf.key_path.as_str())
         .run(([127, 0, 0, 1], 8443))
         .await;
 }
