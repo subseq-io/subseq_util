@@ -237,8 +237,9 @@ async fn no_auth_login_handler() -> Result<impl Reply, Rejection> {
         <html>
             <body>
                 <form action="/auth" method="post>
-                    <input type="text" name="user_id">
-                    <input type="submit" value="Submit">
+                    <label for="user_id">User ID</label>
+                    <input type="text" id="user_id" name="user_id" required minlength="36" size="36" />
+                    <input type="submit" value="Submit" />
                 </form>
             </body>
         </html>
