@@ -101,12 +101,12 @@ impl EnvFilledConfig for DatabaseConfig {
 }
 
 impl DatabaseConfig {
-    pub fn db_url(self, database: &str) -> String {
+    pub fn db_url(&self, database: &str) -> String {
         let ssl_string = "?sslmode=require";
         format!(
             "postgres://{}:{}@{}:{}/{}{}",
             self.username,
-            self.password.expect("No password for database!"),
+            self.password.as_ref().expect("No password for database!"),
             self.host,
             self.port,
             database,

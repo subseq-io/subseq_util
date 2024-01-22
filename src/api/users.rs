@@ -4,7 +4,8 @@ use tokio::sync::broadcast;
 use warp::{Filter, Rejection, Reply};
 
 use super::*;
-use crate::tables::{DbPool, User};
+use crate::tables::{DbPool, UserTable};
+use uuid::Uuid;
 
 #[derive(Deserialize)]
 pub struct UserPayload {
@@ -12,10 +13,10 @@ pub struct UserPayload {
     email: String,
 }
 
-pub async fn create_user_handler(
+pub async fn create_user_handler<U: UserTable>(
     payload: UserPayload,
     db_pool: Arc<DbPool>,
-    mut sender: broadcast::Sender<User>,
+    sender: broadcast::Sender<U>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     let mut conn = match db_pool.get() {
         Ok(conn) => conn,
@@ -26,22 +27,45 @@ pub async fn create_user_handler(
         Some(s) => Some(s.as_str()),
         None => None,
     };
-    match User::create(&mut conn, &mut sender, &email, opt_username) {
+    let user = match U::create(&mut conn, Uuid::new_v4(), &email, opt_username) {
         Ok(user) => user,
         Err(_) => return Err(warp::reject::custom(ConflictError {})),
     };
-    Ok(warp::reply::json(&"User created"))
+    sender.send(user.clone()).ok();
+    Ok(warp::reply::json(&user))
 }
 
-pub fn routes(
+pub async fn get_user_handler<U: UserTable>(
+    user_id: Uuid,
+    db_pool: Arc<DbPool>
+) -> Result<impl warp::Reply, warp::Rejection> {
+    let mut conn = match db_pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return Err(warp::reject::custom(DatabaseError {})),
+    };
+    let user = match U::get(&mut conn, user_id) {
+        Some(user) => user,
+        None => {
+            return Err(warp::reject::custom(NotFoundError{}))
+        }
+    };
+    Ok(warp::reply::json(&user))
+}
+
+pub fn routes<U: UserTable + Send + Sync + 'static>(
     pool: Arc<DbPool>,
-    user_tx: broadcast::Sender<User>,
+    user_tx: broadcast::Sender<U>,
 ) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     let create_user = warp::post()
         .and(warp::body::json())
         .and(with_db(pool.clone()))
         .and(with_broadcast(user_tx))
-        .and_then(create_user_handler);
+        .and_then(create_user_handler::<U>);
 
-    warp::path("user").and(create_user)
+    let get_user = warp::get()
+        .and(warp::path::param())
+        .and(with_db(pool.clone()))
+        .and_then(get_user_handler::<U>);
+
+    warp::path("user").and(create_user.or(get_user))
 }
