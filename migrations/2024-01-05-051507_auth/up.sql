@@ -7,7 +7,6 @@ CREATE TABLE auth.users (
 );
 
 CREATE TABLE auth.user_id_accounts (
-    user_id UUID NOT NULL REFERENCES auth.users(id),
-    username VARCHAR NOT NULL UNIQUE,
-    PRIMARY KEY (user_id, username)
+    user_id UUID PRIMARY KEY REFERENCES auth.users(id),
+    username VARCHAR NOT NULL UNIQUE
 );

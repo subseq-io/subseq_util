@@ -17,7 +17,7 @@ pub mod auth {
     }
 
     diesel::table! {
-        auth.user_id_accounts (user_id, username) {
+        auth.user_id_accounts (user_id) {
             user_id -> Uuid,
             username -> Varchar,
             #[max_length = 10]
