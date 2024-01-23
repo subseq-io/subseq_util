@@ -2,11 +2,13 @@ use serde::Deserialize;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use warp::{Filter, Rejection, Reply};
+use warp_sessions::MemoryStore;
+use uuid::Uuid;
 
 use super::*;
+use crate::oidc::IdentityProvider;
 use crate::router::Router;
 use crate::tables::{DbPool, UserTable};
-use uuid::Uuid;
 
 #[derive(Deserialize)]
 pub struct UserPayload {
@@ -16,6 +18,7 @@ pub struct UserPayload {
 
 pub async fn create_user_handler<U: UserTable>(
     payload: UserPayload,
+    _auth_user: AuthenticatedUser,
     db_pool: Arc<DbPool>,
     sender: broadcast::Sender<U>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
@@ -38,6 +41,7 @@ pub async fn create_user_handler<U: UserTable>(
 
 pub async fn get_user_handler<U: UserTable>(
     user_id: Uuid,
+    _auth_user: AuthenticatedUser,
     db_pool: Arc<DbPool>
 ) -> Result<impl warp::Reply, warp::Rejection> {
     let mut conn = match db_pool.get() {
@@ -54,18 +58,22 @@ pub async fn get_user_handler<U: UserTable>(
 }
 
 pub fn routes<U: UserTable + Send + Sync + 'static>(
+    idp: Option<Arc<IdentityProvider>>,
+    session: MemoryStore,
     pool: Arc<DbPool>,
     router: &mut Router,
 ) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     let user_tx = router.announce();
     let create_user = warp::post()
         .and(warp::body::json())
+        .and(authenticate(idp.clone(), session.clone()))
         .and(with_db(pool.clone()))
         .and(with_broadcast(user_tx))
         .and_then(create_user_handler::<U>);
 
     let get_user = warp::get()
         .and(warp::path::param())
+        .and(authenticate(idp.clone(), session.clone()))
         .and(with_db(pool.clone()))
         .and_then(get_user_handler::<U>);
 
