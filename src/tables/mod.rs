@@ -52,8 +52,7 @@ impl diesel::result::DatabaseErrorInformation for ValidationErrorMessage {
 }
 
 
-#[cfg(test)]
-pub(self) mod harness {
+pub mod harness {
     use crate::server::DatabaseConfig;
     use diesel::migration::MigrationSource;
     use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};

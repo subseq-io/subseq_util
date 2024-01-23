@@ -2364,11 +2364,10 @@ checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
 
 [[package]]
 name = "subseq_util"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "anymap",
- "base64 0.21.5",
  "chrono",
  "console-subscriber",
  "cookie",
@@ -2377,7 +2376,6 @@ dependencies = [
  "email_address",
  "function_name",
  "openidconnect",
- "rand",
  "reqwest",
  "rustls-pemfile",
  "serde",
