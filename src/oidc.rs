@@ -1,4 +1,4 @@
-use rustls_pemfile::certs;
+use std::str::FromStr;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
@@ -7,15 +7,16 @@ use std::sync::Once;
 use anyhow::{anyhow, Result as AnyResult};
 use openidconnect::core::{
     CoreAuthenticationFlow, CoreClient, CoreIdToken, CoreIdTokenClaims, CoreProviderMetadata,
-    CoreTokenResponse,
+    CoreTokenResponse
 };
 use openidconnect::reqwest::Error as RequestError;
 use openidconnect::{
     AccessToken, AccessTokenHash, AuthorizationCode, ClientId, ClientSecret, CsrfToken,
     HttpRequest, HttpResponse, IssuerUrl, Nonce, OAuth2TokenResponse, PkceCodeChallenge,
-    PkceCodeVerifier, RedirectUrl, RefreshToken, Scope, TokenResponse,
+    PkceCodeVerifier, RedirectUrl, RefreshToken, Scope, TokenResponse 
 };
 use reqwest::{redirect::Policy, Certificate, Client};
+use rustls_pemfile::certs;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -102,9 +103,39 @@ impl OidcToken {
                 .map(|t| t.clone())
                 .ok_or_else(|| anyhow!("Server did not provide ID token!"))?,
             access_token: token.access_token().clone(),
-            refresh_token: token.refresh_token().map(|t| t.clone()),
+            refresh_token: token.refresh_token().cloned(),
             nonce,
         })
+    }
+
+    pub fn refresh(self, token: CoreTokenResponse) -> Self {
+        Self {
+            id_token: self.id_token,
+            access_token: token.access_token().clone(),
+            refresh_token: token.refresh_token().cloned(),
+            nonce: self.nonce
+        }
+    }
+
+    pub fn from_bearer(tok: &str) -> Option<Self> {
+        let parts: Vec<&str> = tok.split(':').collect();
+        if parts.len() == 3 {
+            Some(OidcToken{
+                id_token: CoreIdToken::from_str(parts[0]).ok()?,
+                access_token: AccessToken::new(parts[1].to_string()),
+                refresh_token: None,
+                nonce: Nonce::new(parts[2].to_string()),
+            })
+        } else if parts.len() == 4 {
+            Some(OidcToken{
+                id_token: CoreIdToken::from_str(parts[0]).ok()?,
+                access_token: AccessToken::new(parts[1].to_string()),
+                refresh_token: Some(RefreshToken::new(parts[2].to_string())),
+                nonce: Nonce::new(parts[3].to_string()),
+            })
+        } else {
+            None
+        }
     }
 }
 
@@ -145,6 +176,18 @@ impl IdentityProvider {
         .set_redirect_uri(oidc.redirect_url.clone());
 
         Ok(Self { client })
+    }
+
+    pub async fn refresh(&self, token: OidcToken) -> AnyResult<OidcToken> {
+        let refresh_token = match &token.refresh_token {
+            Some(tok) => tok,
+            None => anyhow::bail!("No refresh token")
+        };
+        let token_response = self.client
+            .exchange_refresh_token(refresh_token)
+            .request_async(async_http_client)
+            .await?;
+        Ok(token.refresh(token_response))
     }
 
     pub fn login_oidc(&self, scopes: Vec<String>) -> (Url, CsrfToken, PkceCodeVerifier, Nonce) {
