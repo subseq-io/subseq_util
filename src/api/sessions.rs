@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use warp::http::header::AUTHORIZATION;
 use warp::{filters::path::FullPath, Filter, Rejection, Reply, reply::WithHeader};
-use warp_sessions::{MemoryStore, SessionWithStore, SessionStore, WithSession};
+use warp_sessions::{MemoryStore, SessionWithStore, WithSession};
 
 use crate::oidc::{IdentityProvider, OidcToken};
 
@@ -23,11 +23,15 @@ impl AuthenticatedUser {
             Ok(claims) => (claims, None),
             Err(_) => {
                 // Try to refresh
+                tracing::trace!("Refresh happening");
                 let token = idp.refresh(token).await.ok()?;
+                tracing::trace!("Refresh complete");
                 (idp.validate_token(&token).ok()?, Some(token))
             }
         };
+        tracing::trace!("Claims");
         let user_id = Uuid::parse_str(claims.subject().as_str()).ok()?;
+        tracing::trace!("Token validated");
         Some((Self(user_id), token))
     }
 
@@ -163,8 +167,7 @@ async fn auth_handler(
         Err(_) => return Err(warp::reject::custom(TokenTransferFailed {})),
     };
 
-    let token_serialized = serde_json::to_string(&token).expect("Serialization error");
-    session.session.insert("token", token_serialized).ok();
+    session.session.insert("token", token).ok();
 
     let original_path = match session.session.get::<String>("redirect_path") {
         Some(path) => path,
@@ -190,14 +193,16 @@ pub async fn store_auth_cookie<T: Reply>(reply: T, session: SessionWithStore<Mem
         let reply = warp::reply::with_header(reply, "Server", "Subseq");
         return WithSession::new(reply, session).await;
     }
-
-    let token_serialized = match session.session.get::<String>("token") {
+    
+    let token_serialized = match session.session.get_raw("token") {
         Some(token) => token,
         None => {
+            // Set this random header because there is a type problem otherwise
             let reply = warp::reply::with_header(reply, "Server", "Subseq");
             return WithSession::new(reply, session).await;
         }
     };
+
     let cookie = Cookie::build((AUTH_COOKIE, token_serialized.as_str()))
         .http_only(true)
         .same_site(SameSite::Lax)
@@ -206,6 +211,7 @@ pub async fn store_auth_cookie<T: Reply>(reply: T, session: SessionWithStore<Mem
 
     let cookie_content = cookie.to_string();
     let reply = warp::reply::with_header(reply, "Set-Cookie", cookie_content);
+    tracing::trace!("Cookie set");
     WithSession::new(reply, session).await
 }
 
@@ -213,14 +219,14 @@ pub async fn store_auth_cookie<T: Reply>(reply: T, session: SessionWithStore<Mem
 pub fn authenticate(
     idp: Option<Arc<IdentityProvider>>,
     session: MemoryStore,
-) -> impl Filter<Extract = (AuthenticatedUser,), Error = Rejection> + Clone {
+) -> impl Filter<Extract = (AuthenticatedUser, SessionWithStore<MemoryStore>), Error = Rejection> + Clone {
     warp::any()
         .and(warp::cookie::optional::<String>(AUTH_COOKIE))
         .and(warp::header::optional::<String>(AUTHORIZATION.as_str()))
         .and(warp::path::full())
         .and(warp_sessions::request::with_session(session.clone(), None))
         .and_then(
-            move |token: Option<String>, bearer: Option<String>, path: FullPath, session: SessionWithStore<MemoryStore>| {
+            move |token: Option<String>, bearer: Option<String>, path: FullPath, mut session: SessionWithStore<MemoryStore>| {
                 let idp = idp.clone();
                 async move {
                     if let Some(idp) = idp {
@@ -241,21 +247,17 @@ pub fn authenticate(
                                 let (auth_user, token) = AuthenticatedUser::validate_session(idp, token).await
                                     .ok_or_else(|| warp::reject::custom(InvalidSessionToken))?;
                                 if let Some(token) = token {
-                                    let token_serialized = serde_json::to_string(&token)
-                                        .expect("Serialization error");
-                                    let mut session = session.session;
-                                    session
-                                        .insert("token", token_serialized).ok();
+                                    tracing::trace!("Reset token");
+                                    let inner_session = &mut session.session;
+                                    inner_session
+                                        .insert("token", token).ok();
                                 }
-                                Ok(auth_user)
+                                Ok((auth_user, session))
                             }
                             None => {
-                                let mut inner_session = session.session;
+                                let inner_session = &mut session.session;
                                 inner_session
                                     .insert("redirect_path", path.as_str().to_string()).ok();
-                                session.session_store
-                                    .store_session(inner_session).await.ok();
-
                                 Err(warp::reject::custom(NoSessionToken {}))
                             }
                         }
@@ -263,7 +265,7 @@ pub fn authenticate(
                         if let Some(token) = token {
                             let NoAuthToken { user_id } = serde_json::from_str(&token)
                                 .map_err(|_| warp::reject::custom(InvalidSessionToken))?;
-                            Ok(AuthenticatedUser(user_id))
+                            Ok((AuthenticatedUser(user_id), session))
                         } else {
                             Err(warp::reject::custom(NoSessionToken {}))
                         }
@@ -271,6 +273,8 @@ pub fn authenticate(
                 }
             },
         )
+        .untuple_one()
+
 }
 
 pub fn with_idp(
@@ -310,8 +314,7 @@ async fn no_auth_form_handler(mut session: SessionWithStore<MemoryStore>, form: 
     let user_id = Uuid::parse_str(&form.user_id)
         .map_err(|_| warp::reject::custom(InvalidCredentials{}))?;
     let token = NoAuthToken{user_id};
-    let token_serialized = serde_json::to_string(&token).expect("Serialization error");
-    session.session.insert("token", token_serialized).ok();
+    session.session.insert("token", token).ok();
 
     let original_path = match session.session.get::<String>("redirect_path") {
         Some(path) => path,

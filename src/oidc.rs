@@ -100,7 +100,7 @@ impl OidcToken {
         Ok(Self {
             id_token: token
                 .id_token()
-                .map(|t| t.clone())
+                .cloned()
                 .ok_or_else(|| anyhow!("Server did not provide ID token!"))?,
             access_token: token.access_token().clone(),
             refresh_token: token.refresh_token().cloned(),
@@ -108,13 +108,13 @@ impl OidcToken {
         })
     }
 
-    pub fn refresh(self, token: CoreTokenResponse) -> Self {
-        Self {
-            id_token: self.id_token,
+    pub fn refresh(self, token: CoreTokenResponse) -> Option<Self> {
+        Some(Self {
+            id_token: token.id_token().cloned()?,
             access_token: token.access_token().clone(),
             refresh_token: token.refresh_token().cloned(),
             nonce: self.nonce
-        }
+        })
     }
 
     pub fn from_bearer(tok: &str) -> Option<Self> {
@@ -187,7 +187,10 @@ impl IdentityProvider {
             .exchange_refresh_token(refresh_token)
             .request_async(async_http_client)
             .await?;
-        Ok(token.refresh(token_response))
+        match token.refresh(token_response) {
+            Some(token) => Ok(token),
+            None => anyhow::bail!("Missing token")
+        }
     }
 
     pub fn login_oidc(&self, scopes: Vec<String>) -> (Url, CsrfToken, PkceCodeVerifier, Nonce) {
@@ -224,14 +227,19 @@ impl IdentityProvider {
     pub fn validate_token(&self, token: &OidcToken) -> AnyResult<CoreIdTokenClaims> {
         let verifier = self.client.id_token_verifier();
         let id_token = &token.id_token;
+        tracing::trace!("claims");
         let claims = id_token.claims(&verifier, &token.nonce)?;
+        tracing::trace!("after claims");
 
         if let Some(expected_access_token_hash) = claims.access_token_hash() {
+            tracing::trace!("in hash");
             let actual_access_token_hash =
                 AccessTokenHash::from_token(&token.access_token, &id_token.signing_alg()?)?;
+            tracing::trace!("after hash get");
             if actual_access_token_hash != *expected_access_token_hash {
                 return Err(anyhow!("Invalid access token"));
             }
+            tracing::trace!("after hash check");
         }
 
         Ok(claims.clone())
