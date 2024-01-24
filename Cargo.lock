@@ -2375,6 +2375,7 @@ dependencies = [
  "diesel_migrations",
  "email_address",
  "function_name",
+ "lazy_static",
  "openidconnect",
  "reqwest",
  "rustls-pemfile",
