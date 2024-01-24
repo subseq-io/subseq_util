@@ -204,6 +204,7 @@ pub async fn store_auth_cookie<T: Reply>(reply: T, session: SessionWithStore<Mem
     };
 
     let cookie = Cookie::build((AUTH_COOKIE, token_serialized.as_str()))
+        .path("/")
         .http_only(true)
         .same_site(SameSite::Lax)
         .secure(true)
