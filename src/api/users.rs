@@ -1,5 +1,4 @@
 use serde::Deserialize;
-use warp_sessions::request::with_session;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use warp::{Filter, Rejection, Reply};
@@ -71,7 +70,6 @@ pub fn routes<U: UserTable + Send + Sync + 'static>(
     let create_user = warp::post()
         .and(warp::body::json())
         .and(authenticate(idp.clone(), session.clone()))
-        .and(with_session(session.clone(), None))
         .and(with_db(pool.clone()))
         .and(with_broadcast(user_tx))
         .and_then(create_user_handler::<U>)
@@ -81,7 +79,6 @@ pub fn routes<U: UserTable + Send + Sync + 'static>(
     let get_user = warp::get()
         .and(warp::path::param())
         .and(authenticate(idp.clone(), session.clone()))
-        .and(with_session(session.clone(), None))
         .and(with_db(pool.clone()))
         .and_then(get_user_handler::<U>)
         .untuple_one()
