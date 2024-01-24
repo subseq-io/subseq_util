@@ -1,13 +1,14 @@
 use std::sync::Arc;
 
 use cookie::{Cookie, SameSite};
+use lazy_static::lazy_static;
 use openidconnect::{AuthorizationCode, Nonce, PkceCodeVerifier};
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use warp::http::header::AUTHORIZATION;
 use warp::{filters::path::FullPath, Filter, Rejection, Reply, reply::WithHeader};
-use warp_sessions::{MemoryStore, SessionWithStore, WithSession};
+use warp_sessions::{MemoryStore, SessionWithStore, WithSession, CookieOptions, SameSiteCookieOption};
 
 use crate::oidc::{IdentityProvider, OidcToken};
 
@@ -216,6 +217,17 @@ pub async fn store_auth_cookie<T: Reply>(reply: T, session: SessionWithStore<Mem
     WithSession::new(reply, session).await
 }
 
+lazy_static!{
+    static ref COOKIE_OPTS: CookieOptions = CookieOptions {
+        cookie_name: "sid",
+        path: Some("/".to_string()),
+        http_only: true,
+        same_site: Some(SameSiteCookieOption::Lax),
+        secure: true,
+        ..Default::default()
+    };
+}
+
 
 pub fn authenticate(
     idp: Option<Arc<IdentityProvider>>,
@@ -225,7 +237,7 @@ pub fn authenticate(
         .and(warp::cookie::optional::<String>(AUTH_COOKIE))
         .and(warp::header::optional::<String>(AUTHORIZATION.as_str()))
         .and(warp::path::full())
-        .and(warp_sessions::request::with_session(session.clone(), None))
+        .and(warp_sessions::request::with_session(session.clone(), Some(COOKIE_OPTS.clone())))
         .and_then(
             move |token: Option<String>, bearer: Option<String>, path: FullPath, mut session: SessionWithStore<MemoryStore>| {
                 let idp = idp.clone();
@@ -334,7 +346,7 @@ pub fn routes(
 ) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     let login = warp::get()
         .and(warp::path("login"))
-        .and(warp_sessions::request::with_session(session.clone(), None))
+        .and(warp_sessions::request::with_session(session.clone(), Some(COOKIE_OPTS.clone())))
         .and(with_idp(idp.clone()))
         .and_then(login_handler)
         .untuple_one()
@@ -342,7 +354,7 @@ pub fn routes(
 
     let auth = warp::get()
         .and(warp::query::<AuthQuery>())
-        .and(warp_sessions::request::with_session(session.clone(), None))
+        .and(warp_sessions::request::with_session(session.clone(), Some(COOKIE_OPTS.clone())))
         .and(with_idp(idp.clone()))
         .and_then(auth_handler)
         .untuple_one()
@@ -358,7 +370,7 @@ pub fn no_auth_routes(
         .and(warp::path("login"))
         .and_then(no_auth_login_handler);
     let auth = warp::post()
-        .and(warp_sessions::request::with_session(session.clone(), None))
+        .and(warp_sessions::request::with_session(session.clone(), Some(COOKIE_OPTS.clone())))
         .and(warp::body::form())
         .and_then(no_auth_form_handler)
         .untuple_one()
