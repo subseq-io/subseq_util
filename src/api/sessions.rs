@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use warp::http::header::AUTHORIZATION;
 use warp::{filters::path::FullPath, Filter, Rejection, Reply, reply::WithHeader};
-use warp_sessions::{MemoryStore, SessionWithStore, WithSession};
+use warp_sessions::{MemoryStore, SessionWithStore, WithSession, CookieOptions, SameSiteCookieOption};
 
 use crate::oidc::{IdentityProvider, OidcToken};
 
@@ -221,11 +221,20 @@ pub fn authenticate(
     idp: Option<Arc<IdentityProvider>>,
     session: MemoryStore,
 ) -> impl Filter<Extract = (AuthenticatedUser, SessionWithStore<MemoryStore>), Error = Rejection> + Clone {
+    let cookie_opts = CookieOptions {
+        cookie_name: "sid",
+        path: Some("/".to_string()),
+        http_only: true,
+        same_site: Some(SameSiteCookieOption::Lax),
+        secure: true,
+        ..Default::default()
+    };
+
     warp::any()
         .and(warp::cookie::optional::<String>(AUTH_COOKIE))
         .and(warp::header::optional::<String>(AUTHORIZATION.as_str()))
         .and(warp::path::full())
-        .and(warp_sessions::request::with_session(session.clone(), None))
+        .and(warp_sessions::request::with_session(session.clone(), Some(cookie_opts)))
         .and_then(
             move |token: Option<String>, bearer: Option<String>, path: FullPath, mut session: SessionWithStore<MemoryStore>| {
                 let idp = idp.clone();
