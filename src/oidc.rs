@@ -227,19 +227,19 @@ impl IdentityProvider {
     pub fn validate_token(&self, token: &OidcToken) -> AnyResult<CoreIdTokenClaims> {
         let verifier = self.client.id_token_verifier();
         let id_token = &token.id_token;
-        tracing::trace!("claims");
+        tracing::info!("claims");
         let claims = id_token.claims(&verifier, &token.nonce)?;
-        tracing::trace!("after claims");
+        tracing::info!("after claims");
 
         if let Some(expected_access_token_hash) = claims.access_token_hash() {
-            tracing::trace!("in hash");
+            tracing::info!("in hash");
             let actual_access_token_hash =
                 AccessTokenHash::from_token(&token.access_token, &id_token.signing_alg()?)?;
-            tracing::trace!("after hash get");
+            tracing::info!("after hash get");
             if actual_access_token_hash != *expected_access_token_hash {
                 return Err(anyhow!("Invalid access token"));
             }
-            tracing::trace!("after hash check");
+            tracing::info!("after hash check");
         }
 
         Ok(claims.clone())

@@ -23,15 +23,15 @@ impl AuthenticatedUser {
             Ok(claims) => (claims, None),
             Err(_) => {
                 // Try to refresh
-                tracing::trace!("Refresh happening");
+                tracing::info!("Refresh happening");
                 let token = idp.refresh(token).await.ok()?;
-                tracing::trace!("Refresh complete");
+                tracing::info!("Refresh complete");
                 (idp.validate_token(&token).ok()?, Some(token))
             }
         };
-        tracing::trace!("Claims");
+        tracing::info!("Claims");
         let user_id = Uuid::parse_str(claims.subject().as_str()).ok()?;
-        tracing::trace!("Token validated");
+        tracing::info!("Token validated");
         Some((Self(user_id), token))
     }
 
@@ -211,7 +211,7 @@ pub async fn store_auth_cookie<T: Reply>(reply: T, session: SessionWithStore<Mem
 
     let cookie_content = cookie.to_string();
     let reply = warp::reply::with_header(reply, "Set-Cookie", cookie_content);
-    tracing::trace!("Cookie set");
+    tracing::info!("Cookie set");
     WithSession::new(reply, session).await
 }
 
@@ -247,7 +247,7 @@ pub fn authenticate(
                                 let (auth_user, token) = AuthenticatedUser::validate_session(idp, token).await
                                     .ok_or_else(|| warp::reject::custom(InvalidSessionToken))?;
                                 if let Some(token) = token {
-                                    tracing::trace!("Reset token");
+                                    tracing::info!("Reset token");
                                     let inner_session = &mut session.session;
                                     inner_session
                                         .insert("token", token).ok();
