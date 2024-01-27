@@ -12,7 +12,7 @@ use warp_sessions::{MemoryStore, SessionWithStore, WithSession, CookieOptions, S
 
 use crate::oidc::{IdentityProvider, OidcToken};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
 pub struct AuthenticatedUser(Uuid);
 
 #[derive(Clone, Debug)]

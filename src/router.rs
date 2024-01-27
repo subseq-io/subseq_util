@@ -40,4 +40,14 @@ impl Router {
     pub fn get_address<M: Send + Sync + 'static>(&self) -> Option<&mpsc::Sender<M>> {
         self.mpsc_map.get::<mpsc::Sender<M>>()
     }
+
+    pub fn create_unbounded_channel<M: Send + Sync + 'static>(&mut self) -> mpsc::UnboundedReceiver<M> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        self.mpsc_map.insert::<mpsc::UnboundedSender<M>>(tx);
+        rx
+    }
+
+    pub fn get_unbounded_address<M: Send + Sync + 'static>(&self) -> Option<&mpsc::UnboundedSender<M>> {
+        self.mpsc_map.get::<mpsc::UnboundedSender<M>>()
+    }
 }
