@@ -8,6 +8,33 @@ pub use users::UserTable;
 pub type DbPool = Pool<ConnectionManager<PgConnection>>;
 const DB_TIMEOUT: Duration = Duration::from_secs(3);
 
+#[macro_export]
+macro_rules! setup_table_crud {
+    ($struct_name:ident, $table:path) => {
+        impl $struct_name {
+            pub fn list(conn: &mut PgConnection,
+                        page: u32,
+                        page_size: u32) -> Vec<Self> {
+                let offset = page.saturating_sub(1) * page_size;
+                match $table
+                        .limit(page_size as i64)
+                        .offset(offset as i64)
+                        .load::<Self>(conn) {
+                    Ok(list) => list,
+                    Err(err) => {
+                        tracing::warn!("DB List Query Failed: {:?}", err);
+                        vec![]
+                    }
+                }
+            }
+
+            pub fn get(conn: &mut PgConnection, id: Uuid) -> Option<Self> {
+                $table.find(id).get_result::<Self>(conn).optional().ok()?
+            }
+        }
+    };
+}
+
 pub async fn establish_connection_pool(database_url: &str) -> DbPool {
     let manager = ConnectionManager::<PgConnection>::new(database_url);
     let pool_async = tokio::task::spawn_blocking(|| Pool::builder().build(manager));
