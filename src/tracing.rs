@@ -20,6 +20,7 @@ pub fn setup_tracing(app_name: &str) {
                 .with(console_layer)
                 .with(tracing_layer)
                 .init();
+            tracing::info!("Tracing started with console");
         }
         #[cfg(not(console))]
         {
