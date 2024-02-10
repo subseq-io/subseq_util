@@ -25,7 +25,7 @@ macro_rules! create_user_base {
 
         #[derive(PartialEq, Queryable, Insertable, Clone, Debug, Serialize)]
         #[diesel(table_name = crate::schema::auth::portraits)]
-        pub struct UserPortraits {
+        pub struct UserPortrait {
             pub user_id: Uuid,
             pub portrait: Vec<u8>,
         }
