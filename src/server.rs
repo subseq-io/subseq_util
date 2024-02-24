@@ -26,14 +26,14 @@ impl EnvFilledConfig for TlsConfig {
 #[derive(Deserialize)]
 pub struct PrismConfig {
     pub host: String,
-    pub port: u16,
+    pub port: Option<u16>,
 }
 
 impl EnvFilledConfig for PrismConfig {
     fn fill_from_env(self) -> Result<Self, env::VarError> {
         let port = match env::var("PRISM_PORT") {
             Ok(port) => match port.parse::<u16>() {
-                Ok(port) => port,
+                Ok(port) => Some(port),
                 Err(_) => self.port,
             },
             Err(_) => self.port,
