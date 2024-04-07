@@ -1,5 +1,7 @@
-use serde::Deserialize;
 use std::env;
+use std::path::PathBuf;
+
+use serde::Deserialize;
 use url::Url;
 
 pub trait EnvFilledConfig: Sized {
@@ -117,6 +119,7 @@ impl DatabaseConfig {
 
 #[derive(Deserialize)]
 pub struct BaseConfig {
+    pub frontend: Option<PathBuf>,
     pub tls: Option<TlsConfig>,
     pub prism: PrismConfig,
     pub oidc: Option<OidcConfig>,
@@ -124,6 +127,7 @@ pub struct BaseConfig {
 }
 
 pub struct InnerConfig {
+    pub frontend: Option<PathBuf>,
     pub tls: Option<TlsConfig>,
     pub prism: PrismConfig,
     pub oidc: Option<OidcConfig>,
@@ -135,6 +139,7 @@ impl TryFrom<BaseConfig> for InnerConfig {
 
     fn try_from(conf: BaseConfig) -> Result<Self, Self::Error> {
         Ok(Self {
+            frontend: conf.frontend,
             tls: match conf.tls {
                 Some(tls) => Some(tls.fill_from_env()?),
                 None => None,
