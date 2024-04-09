@@ -170,10 +170,7 @@ async fn auth_handler(
 
     session.session.insert("token", token).ok();
 
-    let original_path = match session.session.get::<String>("redirect_path") {
-        Some(path) => path,
-        None => String::from("/"),
-    };
+    let original_path = String::from("/");
     let redirect = format!(
         "<html><head><meta http-equiv=\"refresh\" content=\"0; URL='{}'\"/></head></html>",
         original_path
@@ -329,10 +326,7 @@ async fn no_auth_form_handler(mut session: SessionWithStore<MemoryStore>, form: 
     let token = NoAuthToken{user_id};
     session.session.insert("token", token).ok();
 
-    let original_path = match session.session.get::<String>("redirect_path") {
-        Some(path) => path,
-        None => String::from("/"),
-    };
+    let original_path = String::from("/");
     let redirect = format!(
         "<html><head><meta http-equiv=\"refresh\" content=\"0; URL='{}'\"/></head></html>",
         original_path
