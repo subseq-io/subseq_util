@@ -6,7 +6,7 @@ use openidconnect::{AuthorizationCode, Nonce, PkceCodeVerifier};
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use warp::http::header::AUTHORIZATION;
+use warp::http::{Response, header::AUTHORIZATION};
 use warp::{filters::path::FullPath, Filter, Rejection, Reply, reply::WithHeader};
 use warp_sessions::{MemoryStore, SessionWithStore, WithSession, CookieOptions, SameSiteCookieOption};
 
@@ -359,7 +359,24 @@ pub fn routes(
         .and_then(auth_handler)
         .untuple_one()
         .and_then(store_auth_cookie);
-    warp::path("auth").and(login.or(auth))
+
+    let logout = warp::get()
+        .and(warp::path("logout"))
+        .and(warp_sessions::request::with_session(session.clone(), Some(COOKIE_OPTS.clone())))
+        .map(|mut session: SessionWithStore<MemoryStore>| {
+            session.session.destroy();
+            let cookie = format!("{}=; Max-Age=0; Path=/; HttpOnly; Secure", AUTH_COOKIE);
+            let reply = Response::builder()
+                .header("Set-Cookie", cookie)
+                .body("")
+                .expect("Failed to build response");
+
+            (reply, session)
+        })
+        .untuple_one()
+        .and_then(warp_sessions::reply::with_session);
+
+    warp::path("auth").and(login.or(auth).or(logout))
 }
 
 
