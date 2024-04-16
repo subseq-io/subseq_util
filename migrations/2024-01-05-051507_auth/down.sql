@@ -1,3 +1,4 @@
-DROP TABLE auth.users;
 DROP TABLE auth.user_id_accounts;
-DROP TABLE auth.sessions;
+DROP TABLE auth.users;
+-- This table does not exist.
+-- DROP TABLE auth.sessions;
