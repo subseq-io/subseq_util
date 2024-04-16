@@ -12,8 +12,8 @@ use warp_sessions::{MemoryStore, SessionWithStore, WithSession, CookieOptions, S
 
 use crate::oidc::{IdentityProvider, OidcToken};
 
-#[derive(Clone, Debug, Copy)]
-pub struct AuthenticatedUser(Uuid);
+#[derive(Clone, Debug)]
+pub struct AuthenticatedUser(Uuid, String, String);
 
 #[derive(Clone, Debug)]
 pub struct SessionToken(Vec<u8>);
@@ -32,12 +32,23 @@ impl AuthenticatedUser {
         };
         tracing::trace!("Claims");
         let user_id = Uuid::parse_str(claims.subject().as_str()).ok()?;
+        let user_name = claims.preferred_username()?.as_str();
+        let user_email = claims.email()?.as_str();
+
         tracing::trace!("Token validated");
-        Some((Self(user_id), token))
+        Some((Self(user_id, user_name.to_string(), user_email.to_string()), token))
     }
 
     pub fn id(&self) -> Uuid {
         self.0
+    }
+
+    pub fn username(&self) -> String {
+        self.1.clone()
+    }
+
+    pub fn email(&self) -> String {
+        self.2.clone()
     }
 }
 
@@ -275,7 +286,7 @@ pub fn authenticate(
                         if let Some(token) = token {
                             let NoAuthToken { user_id } = serde_json::from_str(&token)
                                 .map_err(|_| warp::reject::custom(InvalidSessionToken))?;
-                            Ok((AuthenticatedUser(user_id), session))
+                            Ok((AuthenticatedUser(user_id, "FAKE_NAME".to_string(), "FAKE_EMAIL".to_string()), session))
                         } else {
                             Err(warp::reject::custom(NoSessionToken {}))
                         }
