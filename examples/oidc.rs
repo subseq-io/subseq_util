@@ -28,13 +28,20 @@ async fn main() {
 
     // OIDC
     let tls_conf = conf.tls.as_ref().expect("Must define TLS for this example");
-    let oidc_conf = conf.oidc.as_ref().expect("Must define OIDC for this example");
+    let oidc_conf = conf
+        .oidc
+        .as_ref()
+        .expect("Must define OIDC for this example");
 
     init_client_pool(tls_conf.ca_path.as_str());
     let redirect_url = "https://localhost:8443/auth";
     let oidc = OidcCredentials::new(
         oidc_conf.client_id.clone(),
-        oidc_conf.client_secret.as_ref().expect("No OIDC Client Secret").clone(),
+        oidc_conf
+            .client_secret
+            .as_ref()
+            .expect("No OIDC Client Secret")
+            .clone(),
         redirect_url,
     )
     .expect("Invalid OIDC Credentials");

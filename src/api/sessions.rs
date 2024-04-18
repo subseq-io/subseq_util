@@ -6,9 +6,11 @@ use openidconnect::{AuthorizationCode, Nonce, PkceCodeVerifier};
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use warp::http::{Response, header::AUTHORIZATION};
-use warp::{filters::path::FullPath, Filter, Rejection, Reply, reply::WithHeader};
-use warp_sessions::{MemoryStore, SessionWithStore, WithSession, CookieOptions, SameSiteCookieOption};
+use warp::http::{header::AUTHORIZATION, Response};
+use warp::{filters::path::FullPath, reply::WithHeader, Filter, Rejection, Reply};
+use warp_sessions::{
+    CookieOptions, MemoryStore, SameSiteCookieOption, SessionWithStore, WithSession,
+};
 
 use crate::oidc::{IdentityProvider, OidcToken};
 
@@ -19,7 +21,10 @@ pub struct AuthenticatedUser(Uuid, String, String);
 pub struct SessionToken(Vec<u8>);
 
 impl AuthenticatedUser {
-    pub async fn validate_session(idp: Arc<IdentityProvider>, token: OidcToken) -> Option<(Self, Option<OidcToken>)> {
+    pub async fn validate_session(
+        idp: Arc<IdentityProvider>,
+        token: OidcToken,
+    ) -> Option<(Self, Option<OidcToken>)> {
         let (claims, token) = match idp.validate_token(&token) {
             Ok(claims) => (claims, None),
             Err(_) => {
@@ -36,7 +41,10 @@ impl AuthenticatedUser {
         let user_email = claims.email()?.as_str();
 
         tracing::trace!("Token validated");
-        Some((Self(user_id, user_name.to_string(), user_email.to_string()), token))
+        Some((
+            Self(user_id, user_name.to_string(), user_email.to_string()),
+            token,
+        ))
     }
 
     pub fn id(&self) -> Uuid {
@@ -193,16 +201,16 @@ fn parse_auth_cookie(cookie_str: &str) -> Result<OidcToken, Rejection> {
     serde_json::from_str(cookie_str).map_err(|_| warp::reject::custom(InvalidSessionToken))
 }
 
-
-pub async fn store_auth_cookie<T: Reply>(reply: T, session: SessionWithStore<MemoryStore>)
-        -> Result<WithSession<WithHeader<T>>, Rejection>
-{
+pub async fn store_auth_cookie<T: Reply>(
+    reply: T,
+    session: SessionWithStore<MemoryStore>,
+) -> Result<WithSession<WithHeader<T>>, Rejection> {
     if !session.session.data_changed() {
         // Set this random header because there is a type problem otherwise
         let reply = warp::reply::with_header(reply, "Server", "Subseq");
         return WithSession::new(reply, session).await;
     }
-    
+
     let token_serialized = match session.session.get_raw("token") {
         Some(token) => token,
         None => {
@@ -225,7 +233,7 @@ pub async fn store_auth_cookie<T: Reply>(reply: T, session: SessionWithStore<Mem
     WithSession::new(reply, session).await
 }
 
-lazy_static!{
+lazy_static! {
     static ref COOKIE_OPTS: CookieOptions = CookieOptions {
         cookie_name: "sid",
         path: Some("/".to_string()),
@@ -236,18 +244,24 @@ lazy_static!{
     };
 }
 
-
 pub fn authenticate(
     idp: Option<Arc<IdentityProvider>>,
     session: MemoryStore,
-) -> impl Filter<Extract = (AuthenticatedUser, SessionWithStore<MemoryStore>), Error = Rejection> + Clone {
+) -> impl Filter<Extract = (AuthenticatedUser, SessionWithStore<MemoryStore>), Error = Rejection> + Clone
+{
     warp::any()
         .and(warp::cookie::optional::<String>(AUTH_COOKIE))
         .and(warp::header::optional::<String>(AUTHORIZATION.as_str()))
         .and(warp::path::full())
-        .and(warp_sessions::request::with_session(session.clone(), Some(COOKIE_OPTS.clone())))
+        .and(warp_sessions::request::with_session(
+            session.clone(),
+            Some(COOKIE_OPTS.clone()),
+        ))
         .and_then(
-            move |token: Option<String>, bearer: Option<String>, path: FullPath, mut session: SessionWithStore<MemoryStore>| {
+            move |token: Option<String>,
+                  bearer: Option<String>,
+                  path: FullPath,
+                  mut session: SessionWithStore<MemoryStore>| {
                 let idp = idp.clone();
                 async move {
                     if let Some(idp) = idp {
@@ -259,26 +273,28 @@ pub fn authenticate(
                             }
                             _ => match token {
                                 Some(tok) => Some(parse_auth_cookie(&tok)?),
-                                None => None
-                            }
+                                None => None,
+                            },
                         };
 
                         match token {
                             Some(token) => {
-                                let (auth_user, token) = AuthenticatedUser::validate_session(idp, token).await
-                                    .ok_or_else(|| warp::reject::custom(InvalidSessionToken))?;
+                                let (auth_user, token) =
+                                    AuthenticatedUser::validate_session(idp, token)
+                                        .await
+                                        .ok_or_else(|| warp::reject::custom(InvalidSessionToken))?;
                                 if let Some(token) = token {
                                     tracing::trace!("Reset token");
                                     let inner_session = &mut session.session;
-                                    inner_session
-                                        .insert("token", token).ok();
+                                    inner_session.insert("token", token).ok();
                                 }
                                 Ok((auth_user, session))
                             }
                             None => {
                                 let inner_session = &mut session.session;
                                 inner_session
-                                    .insert("redirect_path", path.as_str().to_string()).ok();
+                                    .insert("redirect_path", path.as_str().to_string())
+                                    .ok();
                                 Err(warp::reject::custom(NoSessionToken {}))
                             }
                         }
@@ -286,7 +302,14 @@ pub fn authenticate(
                         if let Some(token) = token {
                             let NoAuthToken { user_id } = serde_json::from_str(&token)
                                 .map_err(|_| warp::reject::custom(InvalidSessionToken))?;
-                            Ok((AuthenticatedUser(user_id, "FAKE_NAME".to_string(), "FAKE_EMAIL".to_string()), session))
+                            Ok((
+                                AuthenticatedUser(
+                                    user_id,
+                                    "FAKE_NAME".to_string(),
+                                    "FAKE_EMAIL".to_string(),
+                                ),
+                                session,
+                            ))
                         } else {
                             Err(warp::reject::custom(NoSessionToken {}))
                         }
@@ -295,7 +318,6 @@ pub fn authenticate(
             },
         )
         .untuple_one()
-
 }
 
 pub fn with_idp(
@@ -321,20 +343,21 @@ async fn no_auth_login_handler() -> Result<impl Reply, Rejection> {
 
 #[derive(Deserialize)]
 struct FormData {
-    user_id: String
+    user_id: String,
 }
 
 #[derive(Deserialize, Serialize)]
 struct NoAuthToken {
-    user_id: Uuid
+    user_id: Uuid,
 }
 
-async fn no_auth_form_handler(mut session: SessionWithStore<MemoryStore>, form: FormData)
-    -> Result<(impl Reply, SessionWithStore<MemoryStore>), Rejection>
-{
-    let user_id = Uuid::parse_str(&form.user_id)
-        .map_err(|_| warp::reject::custom(InvalidCredentials{}))?;
-    let token = NoAuthToken{user_id};
+async fn no_auth_form_handler(
+    mut session: SessionWithStore<MemoryStore>,
+    form: FormData,
+) -> Result<(impl Reply, SessionWithStore<MemoryStore>), Rejection> {
+    let user_id =
+        Uuid::parse_str(&form.user_id).map_err(|_| warp::reject::custom(InvalidCredentials {}))?;
+    let token = NoAuthToken { user_id };
     session.session.insert("token", token).ok();
 
     let original_path = String::from("/");
@@ -351,7 +374,10 @@ pub fn routes(
 ) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     let login = warp::get()
         .and(warp::path("login"))
-        .and(warp_sessions::request::with_session(session.clone(), Some(COOKIE_OPTS.clone())))
+        .and(warp_sessions::request::with_session(
+            session.clone(),
+            Some(COOKIE_OPTS.clone()),
+        ))
         .and(with_idp(idp.clone()))
         .and_then(login_handler)
         .untuple_one()
@@ -359,7 +385,10 @@ pub fn routes(
 
     let auth = warp::get()
         .and(warp::query::<AuthQuery>())
-        .and(warp_sessions::request::with_session(session.clone(), Some(COOKIE_OPTS.clone())))
+        .and(warp_sessions::request::with_session(
+            session.clone(),
+            Some(COOKIE_OPTS.clone()),
+        ))
         .and(with_idp(idp.clone()))
         .and_then(auth_handler)
         .untuple_one()
@@ -367,7 +396,10 @@ pub fn routes(
 
     let logout = warp::get()
         .and(warp::path("logout"))
-        .and(warp_sessions::request::with_session(session.clone(), Some(COOKIE_OPTS.clone())))
+        .and(warp_sessions::request::with_session(
+            session.clone(),
+            Some(COOKIE_OPTS.clone()),
+        ))
         .map(|mut session: SessionWithStore<MemoryStore>| {
             session.session.destroy();
             let cookie = format!("{}=; Max-Age=0; Path=/; HttpOnly; Secure", AUTH_COOKIE);
@@ -384,7 +416,6 @@ pub fn routes(
     warp::path("auth").and(login.or(auth).or(logout))
 }
 
-
 pub fn no_auth_routes(
     session: MemoryStore,
 ) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
@@ -392,7 +423,10 @@ pub fn no_auth_routes(
         .and(warp::path("login"))
         .and_then(no_auth_login_handler);
     let auth = warp::post()
-        .and(warp_sessions::request::with_session(session.clone(), Some(COOKIE_OPTS.clone())))
+        .and(warp_sessions::request::with_session(
+            session.clone(),
+            Some(COOKIE_OPTS.clone()),
+        ))
         .and(warp::body::form())
         .and_then(no_auth_form_handler)
         .untuple_one()

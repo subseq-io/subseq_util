@@ -12,14 +12,13 @@ const DB_TIMEOUT: Duration = Duration::from_secs(3);
 macro_rules! setup_table_crud {
     ($struct_name:ident, $table:path) => {
         impl $struct_name {
-            pub fn list(conn: &mut PgConnection,
-                        page: u32,
-                        page_size: u32) -> Vec<Self> {
+            pub fn list(conn: &mut PgConnection, page: u32, page_size: u32) -> Vec<Self> {
                 let offset = page.saturating_sub(1) * page_size;
                 match $table
-                        .limit(page_size as i64)
-                        .offset(offset as i64)
-                        .load::<Self>(conn) {
+                    .limit(page_size as i64)
+                    .offset(offset as i64)
+                    .load::<Self>(conn)
+                {
                     Ok(list) => list,
                     Err(err) => {
                         tracing::warn!("DB List Query Failed: {:?}", err);
@@ -78,24 +77,27 @@ impl diesel::result::DatabaseErrorInformation for ValidationErrorMessage {
     }
 }
 
-
 pub mod harness {
     use crate::server::DatabaseConfig;
     use diesel::migration::MigrationSource;
-    use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
+    use diesel::pg::Pg;
+    use diesel::pg::PgConnection;
     use diesel::prelude::*;
     use diesel::sql_query;
     use diesel::sql_types::Text;
-    use diesel::pg::Pg;
-    use diesel::pg::PgConnection;
+    use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 
     pub const AUTH_MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations/");
 
     pub fn to_pg_db_name(name: &str) -> String {
         let mut db_name = String::new();
-    
+
         // Ensure the name starts with an underscore if it doesn't start with a letter
-        if name.chars().next().map_or(true, |c| !c.is_ascii_alphabetic()) {
+        if name
+            .chars()
+            .next()
+            .map_or(true, |c| !c.is_ascii_alphabetic())
+        {
             db_name.push('_');
         }
 
@@ -128,14 +130,20 @@ pub mod harness {
             .load::<Table>(connection)
     }
 
-    fn run_migrations(connection: &mut impl MigrationHarness<Pg>,
-                      server_migrations: Option<EmbeddedMigrations>) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-        for mig in <EmbeddedMigrations as MigrationSource<Pg>>::migrations(&AUTH_MIGRATIONS).unwrap() {
+    fn run_migrations(
+        connection: &mut impl MigrationHarness<Pg>,
+        server_migrations: Option<EmbeddedMigrations>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+        for mig in
+            <EmbeddedMigrations as MigrationSource<Pg>>::migrations(&AUTH_MIGRATIONS).unwrap()
+        {
             eprintln!("migration: {}", mig.name());
         }
         connection.run_pending_migrations(AUTH_MIGRATIONS)?;
         if let Some(server_migrations) = server_migrations {
-            for mig in <EmbeddedMigrations as MigrationSource<Pg>>::migrations(&server_migrations).unwrap() {
+            for mig in
+                <EmbeddedMigrations as MigrationSource<Pg>>::migrations(&server_migrations).unwrap()
+            {
                 eprintln!("migration: {}", mig.name());
             }
             connection.run_pending_migrations(server_migrations)?;
@@ -151,12 +159,19 @@ pub mod harness {
     impl Drop for DbHarness {
         fn drop(&mut self) {
             let url = self.db_conf.db_url("postgres");
-            let mut conn = PgConnection::establish(&url).expect("Cannot establish database connection");
+            let mut conn =
+                PgConnection::establish(&url).expect("Cannot establish database connection");
 
-            let disconnect_users = format!("SELECT pg_terminate_backend(pid)
+            let disconnect_users = format!(
+                "SELECT pg_terminate_backend(pid)
                                            FROM pg_stat_activity
-                                           WHERE datname = '{}';", self.db_name);
-            if diesel::sql_query(&disconnect_users).execute(&mut conn).is_err() {
+                                           WHERE datname = '{}';",
+                self.db_name
+            );
+            if diesel::sql_query(&disconnect_users)
+                .execute(&mut conn)
+                .is_err()
+            {
                 eprintln!("Failed to drop database {}", self.db_name);
                 return;
             }
@@ -171,24 +186,33 @@ pub mod harness {
     }
 
     impl DbHarness {
-        pub fn new(host: &str, password: &str, database: &str, server_migrations: Option<EmbeddedMigrations>) -> Self {
-            let db_conf = DatabaseConfig{
+        pub fn new(
+            host: &str,
+            password: &str,
+            database: &str,
+            server_migrations: Option<EmbeddedMigrations>,
+        ) -> Self {
+            let db_conf = DatabaseConfig {
                 username: "postgres".to_string(),
                 password: Some(password.to_string()),
                 host: host.to_string(),
                 port: 5432,
-                require_ssl: false
+                require_ssl: false,
             };
             let url = db_conf.db_url("postgres");
             let database = format!("dbharness_{}", database);
             eprintln!("Connecting to url: {}", url);
-            let mut conn = PgConnection::establish(&url).expect("Cannot establish database connection");
+            let mut conn =
+                PgConnection::establish(&url).expect("Cannot establish database connection");
             eprintln!("Creating database: {}", database);
             let query = diesel::sql_query(&format!("CREATE DATABASE {}", database));
-            query.execute(&mut conn).expect(&format!("Creating {} failed", database));
+            query
+                .execute(&mut conn)
+                .expect(&format!("Creating {} failed", database));
             let url = db_conf.db_url(&database);
             eprintln!("Connecting to url: {}", url);
-            let mut db_conn = PgConnection::establish(&url).expect("Cannot establish database connection");
+            let mut db_conn =
+                PgConnection::establish(&url).expect("Cannot establish database connection");
             run_migrations(&mut db_conn, server_migrations).expect("Migrations failed");
 
             Self {

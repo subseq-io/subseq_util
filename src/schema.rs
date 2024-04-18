@@ -37,10 +37,5 @@ pub mod auth {
     diesel::joinable!(portraits -> users (user_id));
     diesel::joinable!(user_id_accounts -> users (user_id));
 
-    diesel::allow_tables_to_appear_in_same_query!(
-        metadata,
-        portraits,
-        user_id_accounts,
-        users,
-    );
+    diesel::allow_tables_to_appear_in_same_query!(metadata, portraits, user_id_accounts, users,);
 }
