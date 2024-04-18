@@ -23,7 +23,10 @@ async fn main() {
     let conf: InnerConfig = conf
         .try_into()
         .expect("Could not fetch all secrets from environment");
-    let tls_conf = conf.tls.as_ref().expect("Must define TLS conf for this example");
+    let tls_conf = conf
+        .tls
+        .as_ref()
+        .expect("Must define TLS conf for this example");
 
     // Routes
     let session = init_session_store();

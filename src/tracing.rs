@@ -1,5 +1,5 @@
-use tracing_subscriber::prelude::*;
 use tracing_subscriber::filter::EnvFilter;
+use tracing_subscriber::prelude::*;
 
 pub fn setup_tracing(app_name: &str) {
     #[cfg(debug_assertions)]

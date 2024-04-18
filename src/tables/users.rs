@@ -5,10 +5,12 @@ use uuid::Uuid;
 pub trait UserTable: Sized + Serialize + Clone {
     fn from_username(conn: &mut PgConnection, username: &str) -> Option<Self>;
     fn from_email(conn: &mut PgConnection, email: &str) -> Option<Self>;
-    fn create(conn: &mut PgConnection,
-              user_id: Uuid,
-              email: &str,
-              username: Option<&str>) -> QueryResult<Self>;
+    fn create(
+        conn: &mut PgConnection,
+        user_id: Uuid,
+        email: &str,
+        username: Option<&str>,
+    ) -> QueryResult<Self>;
     fn get(conn: &mut PgConnection, id: Uuid) -> Option<Self>;
     fn list(conn: &mut PgConnection, page: u32, page_size: u32) -> Vec<Self>;
 }
@@ -35,7 +37,7 @@ macro_rules! create_user_base {
         pub struct UserIdAccount {
             pub user_id: Uuid,
             pub username: String,
-            pub account_type: Option<String>
+            pub account_type: Option<String>,
         }
 
         #[derive(Queryable, Insertable, Clone, Debug, Serialize, Deserialize)]
@@ -56,7 +58,8 @@ macro_rules! create_user_base {
 
         impl User {
             pub fn is_valid_username(username: &str) -> bool {
-                let first_char_is_alpha = username.chars().next().map_or(false, |c| c.is_alphabetic());
+                let first_char_is_alpha =
+                    username.chars().next().map_or(false, |c| c.is_alphabetic());
                 username.chars().all(|c| c.is_alphanumeric() || c == '_')
                     && username == username.to_lowercase()
                     && !username.contains(' ')
@@ -128,7 +131,7 @@ macro_rules! create_user_base {
                     let user_id_account = UserIdAccount {
                         user_id: user.id,
                         username: username.to_ascii_lowercase(),
-                        account_type: None
+                        account_type: None,
                     };
                     diesel::insert_into(crate::schema::auth::user_id_accounts::table)
                         .values(&user_id_account)
@@ -163,17 +166,17 @@ macro_rules! create_user_base {
                 }
             }
         }
-    }
+    };
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::tables::harness::{to_pg_db_name, list_tables, DbHarness};
-    use function_name::named;
-    use chrono::NaiveDateTime;
-    use serde::{Deserialize, Serialize};
+    use crate::tables::harness::{list_tables, to_pg_db_name, DbHarness};
     use crate::tables::ValidationErrorMessage;
+    use chrono::NaiveDateTime;
+    use function_name::named;
+    use serde::{Deserialize, Serialize};
 
     create_user_base!();
 
@@ -196,13 +199,8 @@ mod test {
         )
         .expect("user");
 
-        let user_no_username = User::create(
-            &mut conn,
-            Uuid::new_v4(),
-            "test-user2@example.com",
-            None
-        )
-        .expect("user");
+        let user_no_username =
+            User::create(&mut conn, Uuid::new_v4(), "test-user2@example.com", None).expect("user");
 
         let user_expect = User::get(&mut conn, user.id).expect("user2");
         let user_no_username_expect = User::get(&mut conn, user_no_username.id).expect("user2");
@@ -216,11 +214,6 @@ mod test {
             Some("2bad_user"),
         )
         .is_err());
-        assert!(User::create(
-            &mut conn,
-            Uuid::new_v4(),
-            "bad_email",
-            None
-        ).is_err());
+        assert!(User::create(&mut conn, Uuid::new_v4(), "bad_email", None).is_err());
     }
 }

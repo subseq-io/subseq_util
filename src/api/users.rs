@@ -1,9 +1,9 @@
 use serde::Deserialize;
 use std::sync::Arc;
 use tokio::sync::broadcast;
+use uuid::Uuid;
 use warp::{Filter, Rejection, Reply};
 use warp_sessions::{MemoryStore, SessionWithStore};
-use uuid::Uuid;
 
 use super::*;
 use crate::api::sessions::store_auth_cookie;
@@ -45,7 +45,7 @@ pub async fn get_user_handler<U: UserTable>(
     user_id: Uuid,
     _auth_user: AuthenticatedUser,
     session: SessionWithStore<MemoryStore>,
-    db_pool: Arc<DbPool>
+    db_pool: Arc<DbPool>,
 ) -> Result<(impl warp::Reply, SessionWithStore<MemoryStore>), warp::Rejection> {
     let mut conn = match db_pool.get() {
         Ok(conn) => conn,
@@ -53,9 +53,7 @@ pub async fn get_user_handler<U: UserTable>(
     };
     let user = match U::get(&mut conn, user_id) {
         Some(user) => user,
-        None => {
-            return Err(warp::reject::custom(NotFoundError{}))
-        }
+        None => return Err(warp::reject::custom(NotFoundError {})),
     };
     Ok((warp::reply::json(&user), session))
 }
