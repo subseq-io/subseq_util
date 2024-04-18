@@ -20,7 +20,14 @@ pub struct ConflictError {}
 impl warp::reject::Reject for ConflictError {}
 
 #[derive(Debug)]
-pub struct DatabaseError {}
+pub struct DatabaseError {
+    pub msg: String,
+}
+impl DatabaseError {
+    pub fn new(msg: String) -> Self {
+        Self { msg }
+    }
+}
 impl warp::reject::Reject for DatabaseError {}
 
 #[derive(Debug)]
@@ -105,7 +112,7 @@ pub async fn handle_rejection(
         return Ok(Box::new(response));
     }
     if let Some(db_err) = err.find::<DatabaseError>() {
-        tracing::error!("DB Error: {:?}", db_err);
+        tracing::error!("DB Error: {:?}", db_err.msg);
         let json = warp::reply::json(&"Database Error");
         let response =
             warp::reply::with_status(json, warp::http::StatusCode::INTERNAL_SERVER_ERROR);

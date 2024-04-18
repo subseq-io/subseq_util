@@ -26,7 +26,7 @@ pub async fn create_user_handler<U: UserTable>(
 ) -> Result<(impl warp::Reply, SessionWithStore<MemoryStore>), warp::Rejection> {
     let mut conn = match db_pool.get() {
         Ok(conn) => conn,
-        Err(_) => return Err(warp::reject::custom(DatabaseError {})),
+        Err(err) => return Err(warp::reject::custom(DatabaseError::new(err.to_string()))),
     };
     let UserPayload { username, email } = payload;
     let opt_username = match &username {
@@ -49,7 +49,7 @@ pub async fn get_user_handler<U: UserTable>(
 ) -> Result<(impl warp::Reply, SessionWithStore<MemoryStore>), warp::Rejection> {
     let mut conn = match db_pool.get() {
         Ok(conn) => conn,
-        Err(_) => return Err(warp::reject::custom(DatabaseError {})),
+        Err(err) => return Err(warp::reject::custom(DatabaseError::new(err.to_string()))),
     };
     let user = match U::get(&mut conn, user_id) {
         Some(user) => user,
