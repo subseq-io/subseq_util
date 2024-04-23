@@ -26,11 +26,12 @@ pub struct ClientPool {
 
 impl ClientPool {
     pub fn new_client(&self) -> Client {
+        let built_in = self.certs.is_empty();
         let mut builder = Client::builder()
             .https_only(true)
             .redirect(Policy::none())
             .tcp_nodelay(true)
-            .tls_built_in_root_certs(false);
+            .tls_built_in_root_certs(built_in);
         for cert in self.certs.iter() {
             builder = builder.add_root_certificate(cert.clone());
         }
