@@ -41,20 +41,21 @@ impl ClientPool {
 static INIT: Once = Once::new();
 static mut CLIENT_POOL: Option<ClientPool> = None;
 
-pub fn init_client_pool<P: Into<PathBuf>>(ca_path: P) {
+pub fn init_client_pool<P: Into<PathBuf>>(ca_path: Option<P>) {
     INIT.call_once(|| {
-        // Load the certificate
-        let ca_file = File::open(ca_path.into()).expect("Failed to open CA cert file");
-        let mut ca_reader = BufReader::new(ca_file);
-        let ca_certs = certs(&mut ca_reader).unwrap().into_iter();
+        let mut pool_certs: Vec<Certificate> = vec![];
+        if let Some(ca_path) = ca_path {
+            // Load the certificate
+            let ca_file = File::open(ca_path.into()).expect("Failed to open CA cert file");
+            let mut ca_reader = BufReader::new(ca_file);
+            let ca_certs = certs(&mut ca_reader).unwrap().into_iter();
 
-        let mut certs: Vec<Certificate> = vec![];
-        for cert in ca_certs {
-            certs.push(Certificate::from_der(cert.as_slice()).expect("Invalid certificate"));
+            for cert in ca_certs {
+                pool_certs.push(Certificate::from_der(cert.as_slice()).expect("Invalid certificate"));
+            }
         }
-
         unsafe {
-            CLIENT_POOL = Some(ClientPool { certs });
+            CLIENT_POOL = Some(ClientPool { certs: pool_certs });
         }
     });
 }

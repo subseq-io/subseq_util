@@ -33,7 +33,7 @@ async fn main() {
         .as_ref()
         .expect("Must define OIDC for this example");
 
-    init_client_pool(tls_conf.ca_path.as_str());
+    init_client_pool(tls_conf.ca_path.expect("Need CA path in example").as_str());
     let redirect_url = "https://localhost:8443/auth";
     let oidc = OidcCredentials::new(
         oidc_conf.client_id.clone(),
