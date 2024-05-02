@@ -46,8 +46,10 @@ pub fn init_client_pool<P: Into<PathBuf>>(ca_path: Option<P>) {
     INIT.call_once(|| {
         let mut pool_certs: Vec<Certificate> = vec![];
         if let Some(ca_path) = ca_path {
+            let ca_path: PathBuf = ca_path.into();
+            tracing::info!("Using CA cert: {:?}", ca_path);
             // Load the certificate
-            let ca_file = File::open(ca_path.into()).expect("Failed to open CA cert file");
+            let ca_file = File::open(ca_path).expect("Failed to open CA cert file");
             let mut ca_reader = BufReader::new(ca_file);
             let ca_certs = certs(&mut ca_reader).unwrap().into_iter();
 
