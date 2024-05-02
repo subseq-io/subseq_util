@@ -27,6 +27,7 @@ pub struct ClientPool {
 impl ClientPool {
     pub fn new_client(&self) -> Client {
         let built_in = self.certs.is_empty();
+        tracing::info!("Root certs {}", if built_in {"enabled"} else {"disabled"});
         let mut builder = Client::builder()
             .https_only(true)
             .redirect(Policy::none())
