@@ -2378,7 +2378,6 @@ dependencies = [
  "lazy_static",
  "openidconnect",
  "reqwest",
- "rustls-pemfile",
  "serde",
  "serde_json",
  "tokio",
