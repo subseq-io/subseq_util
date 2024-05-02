@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::BufReader;
+use std::io::Read;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Once;
@@ -16,7 +16,6 @@ use openidconnect::{
     PkceCodeVerifier, RedirectUrl, RefreshToken, Scope, TokenResponse,
 };
 use reqwest::{redirect::Policy, Certificate, Client};
-use rustls_pemfile::certs;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -26,13 +25,12 @@ pub struct ClientPool {
 
 impl ClientPool {
     pub fn new_client(&self) -> Client {
-        let built_in = self.certs.is_empty();
         let mut builder = Client::builder()
             .use_rustls_tls()
             .https_only(true)
             .redirect(Policy::none())
             .tcp_nodelay(true)
-            .tls_built_in_root_certs(built_in);
+            .tls_built_in_root_certs(true);
         for cert in self.certs.iter() {
             builder = builder.add_root_certificate(cert.clone());
         }
@@ -49,15 +47,11 @@ pub fn init_client_pool<P: Into<PathBuf>>(ca_path: Option<P>) {
         if let Some(ca_path) = ca_path {
             let ca_path: PathBuf = ca_path.into();
             // Load the certificate
-            let ca_file = File::open(ca_path).expect("Failed to open CA cert file");
-            let mut ca_reader = BufReader::new(ca_file);
-            let ca_certs = certs(&mut ca_reader).unwrap().into_iter();
-
-            for cert in ca_certs {
-                pool_certs.push(Certificate::from_pem(cert.as_slice()).expect("Invalid certificate"));
-            }
+            let mut ca_file = File::open(ca_path).expect("Failed to open CA cert file");
+            let mut buf = Vec::new();
+            ca_file.read_to_end(&mut buf).expect("CA file could not be read");
+            pool_certs.push(Certificate::from_pem(&buf).expect("Invalid certificate"));
         }
-        tracing::info!("Certs: {:?}", pool_certs);
         unsafe {
             CLIENT_POOL = Some(ClientPool { certs: pool_certs });
         }
