@@ -55,7 +55,7 @@ pub fn init_client_pool<P: Into<PathBuf>>(ca_path: Option<P>) {
             let ca_certs = certs(&mut ca_reader).unwrap().into_iter();
 
             for cert in ca_certs {
-                pool_certs.push(Certificate::from_der(cert.as_slice()).expect("Invalid certificate"));
+                pool_certs.push(Certificate::from_pem(cert.as_slice()).expect("Invalid certificate"));
             }
         }
         unsafe {
