@@ -27,8 +27,8 @@ pub struct ClientPool {
 impl ClientPool {
     pub fn new_client(&self) -> Client {
         let built_in = self.certs.is_empty();
-        tracing::info!("Root certs {}", if built_in {"enabled"} else {"disabled"});
         let mut builder = Client::builder()
+            .use_rustls_tls()
             .https_only(true)
             .redirect(Policy::none())
             .tcp_nodelay(true)
@@ -48,7 +48,6 @@ pub fn init_client_pool<P: Into<PathBuf>>(ca_path: Option<P>) {
         let mut pool_certs: Vec<Certificate> = vec![];
         if let Some(ca_path) = ca_path {
             let ca_path: PathBuf = ca_path.into();
-            tracing::info!("Using CA cert: {:?}", ca_path);
             // Load the certificate
             let ca_file = File::open(ca_path).expect("Failed to open CA cert file");
             let mut ca_reader = BufReader::new(ca_file);
@@ -58,6 +57,7 @@ pub fn init_client_pool<P: Into<PathBuf>>(ca_path: Option<P>) {
                 pool_certs.push(Certificate::from_pem(cert.as_slice()).expect("Invalid certificate"));
             }
         }
+        tracing::info!("Certs: {:?}", pool_certs);
         unsafe {
             CLIENT_POOL = Some(ClientPool { certs: pool_certs });
         }
