@@ -17,9 +17,6 @@ use crate::oidc::{IdentityProvider, OidcToken};
 #[derive(Clone, Debug)]
 pub struct AuthenticatedUser(Uuid, String, String);
 
-#[derive(Clone, Debug)]
-pub struct SessionToken(Vec<u8>);
-
 impl AuthenticatedUser {
     pub async fn validate_session(
         idp: Arc<IdentityProvider>,
