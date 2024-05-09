@@ -60,9 +60,10 @@ macro_rules! create_user_base {
             pub fn is_valid_username(username: &str) -> bool {
                 let first_char_is_alpha =
                     username.chars().next().map_or(false, |c| c.is_alphabetic());
-                username.chars().all(|c| c.is_alphanumeric() || c == '_')
-                    && username == username.to_lowercase()
-                    && !username.contains(' ')
+                let valid_chars = vec!['_', '-', '.', '@', ' ', '+'];
+                let username = username.trim();
+                let username = username.to_ascii_lowercase();
+                username.chars().all(|c| c.is_alphanumeric() || valid_chars.contains(&c))
                     && first_char_is_alpha
             }
         }
