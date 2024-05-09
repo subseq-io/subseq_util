@@ -61,8 +61,6 @@ macro_rules! create_user_base {
                 let first_char_is_alpha =
                     username.chars().next().map_or(false, |c| c.is_alphabetic());
                 let valid_chars = vec!['_', '-', '.', '@', ' ', '+'];
-                let username = username.trim();
-                let username = username.to_ascii_lowercase();
                 username.chars().all(|c| c.is_alphanumeric() || valid_chars.contains(&c))
                     && first_char_is_alpha
             }
@@ -131,7 +129,7 @@ macro_rules! create_user_base {
                 if let Some(username) = username {
                     let user_id_account = UserIdAccount {
                         user_id: user.id,
-                        username: username.to_ascii_lowercase(),
+                        username: username.trim().to_ascii_lowercase(),
                         account_type: None,
                     };
                     diesel::insert_into(crate::schema::auth::user_id_accounts::table)
@@ -180,6 +178,45 @@ mod test {
     use serde::{Deserialize, Serialize};
 
     create_user_base!();
+
+    #[test]
+    fn test_username_check() {
+        let valid = vec![
+            "test_user",
+            "test.user",
+            "test-user",
+            "test+user",
+            "test+me@user.com",
+            "test user",
+            "test_user1",
+            "test_user_1",
+            "test.user1",
+            "test.user.1",
+            "test-user1",
+            "test-user-1",
+            "test+user1",
+            "Test User",
+            "test+user+1",
+            "test@user1",
+            "test@user@1",
+            "test user1",
+            "test user 1",
+        ];
+        let invalid = vec![
+            "1test_user",
+            "1test.user",
+            "1test-user",
+            "1test+user",
+            "!test_user",
+            "()user"
+        ];
+        for username in valid {
+            assert!(User::is_valid_username(username));
+        }
+        for username in invalid {
+            assert!(!User::is_valid_username(username));
+        }
+    }
 
     #[test]
     #[named]
