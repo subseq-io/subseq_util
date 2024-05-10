@@ -52,7 +52,7 @@ macro_rules! create_user_base {
             fn eq(&self, other: &Self) -> bool {
                 self.id == other.id
                     && self.email == other.email
-                    && self.created.timestamp_micros() == other.created.timestamp_micros()
+                    && self.created.and_utc().timestamp_micros() == other.created.and_utc().timestamp_micros()
             }
         }
 
