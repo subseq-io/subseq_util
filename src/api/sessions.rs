@@ -76,7 +76,9 @@ pub struct CsrfMismatch;
 impl warp::reject::Reject for CsrfMismatch {}
 
 #[derive(Debug)]
-pub struct TokenTransferFailed;
+pub struct TokenTransferFailed{
+    pub msg: String
+}
 impl warp::reject::Reject for TokenTransferFailed {}
 
 #[derive(Debug)]
@@ -181,7 +183,7 @@ async fn auth_handler(
 
     let token = match idp.token_oidc(code, verifier, nonce).await {
         Ok(token) => token,
-        Err(_) => return Err(warp::reject::custom(TokenTransferFailed {})),
+        Err(err) => return Err(warp::reject::custom(TokenTransferFailed{msg: err.to_string()})),
     };
 
     session.session.insert("token", token).ok();

@@ -135,8 +135,8 @@ pub async fn handle_rejection(
             warp::reply::with_status(json, warp::http::StatusCode::INTERNAL_SERVER_ERROR);
         return Ok(Box::new(response));
     }
-    if let Some(_) = err.find::<TokenTransferFailed>() {
-        tracing::error!("IdP is in down or degraded state!");
+    if let Some(err) = err.find::<TokenTransferFailed>() {
+        tracing::error!("IdP is in down or degraded state! {}", err.msg);
         let json = warp::reply::json(&"Error communicating with identity provider");
         let response =
             warp::reply::with_status(json, warp::http::StatusCode::INTERNAL_SERVER_ERROR);
