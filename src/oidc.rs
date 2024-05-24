@@ -214,13 +214,14 @@ impl IdentityProvider {
         (auth_url, csrf_token, verifier, nonce)
     }
 
-    pub fn logout_oidc(&self, redirect_url: &Url, token: &OidcToken) -> Url {
+    pub fn logout_oidc(&self, redirect_uri: warp::http::Uri, token: &OidcToken) -> Url {
         let mut logout_url = self.logout_url.url().clone();
-        let redirect_url = urlencoding::encode(redirect_url.as_str());
+        let redirect_uri = redirect_uri.to_string();
+        let redirect_uri = urlencoding::encode(redirect_uri.as_str());
         logout_url
             .query_pairs_mut()
             .append_pair("id_token_hint", &token.id_token.to_string())
-            .append_pair("post_logout_redirect_uri", &redirect_url);
+            .append_pair("post_logout_redirect_uri", &redirect_uri);
         logout_url
     }
 

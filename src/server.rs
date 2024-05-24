@@ -51,7 +51,6 @@ impl EnvFilledConfig for PrismConfig {
 pub struct OidcConfig {
     pub idp_url: Url,
     pub redirect_url: Url,
-    pub logout_redirect_url: Url,
     pub client_id: String,
     pub client_secret: Option<String>,
 }
@@ -66,14 +65,6 @@ impl EnvFilledConfig for OidcConfig {
             Err(_) => self.idp_url,
         };
 
-        let logout_redirect_url = match env::var("OIDC_LOGOUT_REDIRECT_URL") {
-            Ok(url) => match Url::parse(&url) {
-                Ok(url) => url,
-                Err(_) => self.logout_redirect_url,
-            },
-            Err(_) => self.logout_redirect_url,
-        };
-
         let redirect_url = match env::var("OIDC_REDIRECT_URL") {
             Ok(url) => match Url::parse(&url) {
                 Ok(url) => url,
@@ -84,7 +75,6 @@ impl EnvFilledConfig for OidcConfig {
 
         Ok(Self {
             idp_url,
-            logout_redirect_url,
             redirect_url,
             client_id: env::var("OIDC_CLIENT_ID").unwrap_or(self.client_id),
             client_secret: Some(env::var("OIDC_CLIENT_SECRET")?),

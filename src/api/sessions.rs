@@ -5,7 +5,6 @@ use lazy_static::lazy_static;
 use openidconnect::{AuthorizationCode, Nonce, PkceCodeVerifier};
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
-use url::Url;
 use uuid::Uuid;
 use warp::http::{header::AUTHORIZATION, Response};
 use warp::{filters::path::FullPath, reply::WithHeader, Filter, Rejection, Reply};
@@ -395,23 +394,17 @@ pub fn provider_routes(
 async fn logout_handler(
         idp: Arc<IdentityProvider>,
         session: SessionWithStore<MemoryStore>,
-        logout_redirect_url: Url,
         token: String) -> Result<(impl Reply, SessionWithStore<MemoryStore>), Rejection> {
     let token = parse_auth_cookie(&token)
         .map_err(|_| warp::reject::custom(InvalidSessionToken))?;
-    let logout_url = idp.logout_oidc(&logout_redirect_url, &token);
+    let logout_url = idp.logout_oidc(
+        "/".parse::<warp::http::Uri>().unwrap(),
+        &token);
     let uri = logout_url.as_str().parse::<warp::http::Uri>().unwrap();
     Ok((warp::redirect(uri), session))
 }
 
-pub fn with_url(
-    url: Url,
-) -> impl Filter<Extract = (Url,), Error = std::convert::Infallible> + Clone {
-    warp::any().map(move || url.clone())
-}
-
 pub fn routes(
-    logout_redirect_url: Url,
     session: MemoryStore,
     idp: Arc<IdentityProvider>,
 ) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
@@ -444,7 +437,6 @@ pub fn routes(
             session.clone(),
             Some(COOKIE_OPTS.clone()),
         ))
-        .and(with_url(logout_redirect_url.clone()))
         .and(warp::cookie::cookie::<String>(AUTH_COOKIE))
         .and_then(logout_handler)
         .untuple_one()

@@ -53,9 +53,7 @@ async fn main() {
 
     // Routes
     let session = init_session_store();
-    let routes = sessions::routes(oidc_conf.logout_redirect_url.clone(),
-                                  session.clone(),
-                                  idp.clone())
+    let routes = sessions::routes(session.clone(), idp.clone())
         .or(sessions::provider_routes(session.clone()))
         .or(warp::get()
             .and(authenticate(Some(idp.clone()), session.clone()))
