@@ -397,11 +397,32 @@ async fn logout_handler(
         token: String) -> Result<(impl Reply, SessionWithStore<MemoryStore>), Rejection> {
     let token = parse_auth_cookie(&token)
         .map_err(|_| warp::reject::custom(InvalidSessionToken))?;
-    let logout_url = idp.logout_oidc(
-        "/".parse::<warp::http::Uri>().unwrap(),
-        &token);
+    let logout_url = idp.logout_oidc("/", &token);
     let uri = logout_url.as_str().parse::<warp::http::Uri>().unwrap();
-    Ok((warp::redirect(uri), session))
+
+    let reply = warp::redirect(uri);
+    let mut response = reply.into_response();
+
+    {
+        let headers = response.headers_mut();
+        let mut reply_headers = HeaderMap::new();
+        reply_headers.append(
+            "Cache-Control",
+            HeaderValue::from_str("no-store, must-revalidate").expect("Invalid header value"),
+        );
+        reply_headers.append(
+            "Expires",
+            HeaderValue::from_str("0").expect("Invalid header value"),
+        );
+        let cookie = format!("{}=; Max-Age=0; Path=/; HttpOnly; Secure", AUTH_COOKIE);
+        reply_headers.append(
+            "Set-Cookie",
+            HeaderValue::from_str(&cookie).expect("Invalid header value"),
+        );
+        headers.extend(reply_headers);
+    }
+
+    Ok((response, session))
 }
 
 pub fn routes(

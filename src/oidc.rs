@@ -161,6 +161,7 @@ impl OidcCredentials {
 
 pub struct IdentityProvider {
     client: CoreClient,
+    base_url: Url,
     logout_url: EndSessionUrl,
 }
 
@@ -181,17 +182,10 @@ impl IdentityProvider {
         )
         .set_redirect_uri(oidc.redirect_url.clone());
 
-        Ok(Self { client, logout_url })
+        Ok(Self { client, base_url: base_url.clone(), logout_url })
     }
 
-    pub async fn refresh(&self, token: OidcToken) -> AnyResult<OidcToken> {
-        let refresh_token = match &token.refresh_token {
-            Some(tok) => tok,
-            None => anyhow::bail!("No refresh token"),
-        };
-        let token_response = self
-            .client
-            .exchange_refresh_token(refresh_token)
+    pub async fn refresh(&self, token: OidcToken) -> AnyResult<OidcToken> { let refresh_token = match &token.refresh_token { Some(tok) => tok, None => anyhow::bail!("No refresh token"), }; let token_response = self .client .exchange_refresh_token(refresh_token)
             .request_async(async_http_client)
             .await?;
         match token.refresh(token_response) {
@@ -214,10 +208,9 @@ impl IdentityProvider {
         (auth_url, csrf_token, verifier, nonce)
     }
 
-    pub fn logout_oidc(&self, redirect_uri: warp::http::Uri, token: &OidcToken) -> Url {
+    pub fn logout_oidc(&self, redirect_uri: &str, token: &OidcToken) -> Url {
         let mut logout_url = self.logout_url.url().clone();
-        let redirect_uri = redirect_uri.to_string();
-        let redirect_uri = urlencoding::encode(redirect_uri.as_str());
+        let redirect_uri = format!("{}{}", self.base_url, redirect_uri);
         logout_url
             .query_pairs_mut()
             .append_pair("id_token_hint", &token.id_token.to_string())
