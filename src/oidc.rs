@@ -142,18 +142,21 @@ impl OidcToken {
 pub struct OidcCredentials {
     client_id: ClientId,
     client_secret: ClientSecret,
+    base_url: Url,
     redirect_url: RedirectUrl,
 }
 
 impl OidcCredentials {
-    pub fn new<A: Into<String>, B: Into<String>, C: Into<String>>(
+    pub fn new<A: Into<String>, B: Into<String>, C: Into<String>, D: Into<String>>(
         client_id: A,
         client_secret: B,
-        redirect_url: C,
+        base_url: C,
+        redirect_url: D,
     ) -> AnyResult<Self> {
         Ok(Self {
             client_id: ClientId::new(client_id.into()),
             client_secret: ClientSecret::new(client_secret.into()),
+            base_url: Url::parse(&base_url.into())?,
             redirect_url: RedirectUrl::new(redirect_url.into())?,
         })
     }
@@ -166,9 +169,9 @@ pub struct IdentityProvider {
 }
 
 impl IdentityProvider {
-    pub async fn new(oidc: &OidcCredentials, base_url: &Url) -> AnyResult<Self> {
-        tracing::info!("OIDC server: {}", base_url);
-        let config = provider_metadata(base_url).await?;
+    pub async fn new(oidc: &OidcCredentials, idp_url: &Url) -> AnyResult<Self> {
+        tracing::info!("OIDC server: {}", idp_url);
+        let config = provider_metadata(idp_url).await?;
         let logout_url = config
             .additional_metadata()
             .end_session_endpoint
@@ -182,7 +185,7 @@ impl IdentityProvider {
         )
         .set_redirect_uri(oidc.redirect_url.clone());
 
-        Ok(Self { client, base_url: base_url.clone(), logout_url })
+        Ok(Self { client, base_url: oidc.base_url.clone(), logout_url })
     }
 
     pub async fn refresh(&self, token: OidcToken) -> AnyResult<OidcToken> { let refresh_token = match &token.refresh_token { Some(tok) => tok, None => anyhow::bail!("No refresh token"), }; let token_response = self .client .exchange_refresh_token(refresh_token)

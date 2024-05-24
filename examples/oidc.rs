@@ -35,6 +35,7 @@ async fn main() {
         .expect("Must define OIDC for this example");
 
     init_client_pool(tls_conf.ca_path.clone().expect("Need CA path in example").into());
+    let base_url = "https://localhost:8443";
     let redirect_url = "https://localhost:8443/auth";
     let oidc = OidcCredentials::new(
         oidc_conf.client_id.clone(),
@@ -43,6 +44,7 @@ async fn main() {
             .as_ref()
             .expect("No OIDC Client Secret")
             .clone(),
+        base_url,
         redirect_url,
     )
     .expect("Invalid OIDC Credentials");
