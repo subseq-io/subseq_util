@@ -5,6 +5,7 @@ use lazy_static::lazy_static;
 use openidconnect::{AuthorizationCode, Nonce, PkceCodeVerifier};
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
+use url::Url;
 use uuid::Uuid;
 use warp::http::{header::AUTHORIZATION, Response};
 use warp::{filters::path::FullPath, reply::WithHeader, Filter, Rejection, Reply};
@@ -367,7 +368,32 @@ async fn no_auth_form_handler(
     Ok((warp::reply::html(redirect), session))
 }
 
+pub fn provider_routes(
+    session: MemoryStore,
+) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+    let logout = warp::path("logout")
+        .and(warp_sessions::request::with_session(
+            session.clone(),
+            Some(COOKIE_OPTS.clone()),
+        ))
+        .map(|mut session: SessionWithStore<MemoryStore>| {
+            session.session.destroy();
+            let cookie = format!("{}=; Max-Age=0; Path=/; HttpOnly; Secure", AUTH_COOKIE);
+            let reply = Response::builder()
+                .header("Set-Cookie", cookie)
+                .body("")
+                .expect("Failed to build response");
+
+            (reply, session)
+        })
+        .untuple_one()
+        .and_then(warp_sessions::reply::with_session);
+
+    warp::path("oauth").and(logout)
+}
+
 pub fn routes(
+    logout_redirect_url: Url,
     session: MemoryStore,
     idp: Arc<IdentityProvider>,
 ) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
@@ -399,14 +425,11 @@ pub fn routes(
             session.clone(),
             Some(COOKIE_OPTS.clone()),
         ))
-        .map(|mut session: SessionWithStore<MemoryStore>| {
-            session.session.destroy();
-            let cookie = format!("{}=; Max-Age=0; Path=/; HttpOnly; Secure", AUTH_COOKIE);
-            let reply = Response::builder()
-                .header("Set-Cookie", cookie)
-                .body("")
-                .expect("Failed to build response");
-
+        .and(with_idp(idp.clone()))
+        .map(move |session: SessionWithStore<MemoryStore>, idp: Arc<IdentityProvider>| {
+            let logout_url = idp.logout_oidc(&logout_redirect_url);
+            let uri = logout_url.as_str().parse::<warp::http::Uri>().unwrap();
+            let reply = warp::redirect(uri);
             (reply, session)
         })
         .untuple_one()

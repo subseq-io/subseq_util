@@ -6,14 +6,15 @@ use std::sync::Once;
 
 use anyhow::{anyhow, Result as AnyResult};
 use openidconnect::core::{
-    CoreAuthenticationFlow, CoreClient, CoreIdToken, CoreIdTokenClaims, CoreProviderMetadata,
+    CoreAuthenticationFlow,
+    CoreClient,
+    CoreIdToken,
+    CoreIdTokenClaims,
     CoreTokenResponse,
 };
 use openidconnect::reqwest::Error as RequestError;
 use openidconnect::{
-    AccessToken, AccessTokenHash, AuthorizationCode, ClientId, ClientSecret, CsrfToken,
-    HttpRequest, HttpResponse, IssuerUrl, Nonce, OAuth2TokenResponse, PkceCodeChallenge,
-    PkceCodeVerifier, RedirectUrl, RefreshToken, Scope, TokenResponse,
+    AccessToken, AccessTokenHash, AuthorizationCode, ClientId, ClientSecret, CsrfToken, EndSessionUrl, HttpRequest, HttpResponse, IssuerUrl, Nonce, OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier, ProviderMetadataWithLogout, RedirectUrl, RefreshToken, Scope, TokenResponse
 };
 use reqwest::{redirect::Policy, Certificate, Client};
 use serde::{Deserialize, Serialize};
@@ -160,13 +161,19 @@ impl OidcCredentials {
 
 pub struct IdentityProvider {
     client: CoreClient,
+    logout_url: EndSessionUrl,
 }
 
 impl IdentityProvider {
-    pub async fn new(oidc: &OidcCredentials, base_url: &str) -> AnyResult<Self> {
+    pub async fn new(oidc: &OidcCredentials, base_url: &Url) -> AnyResult<Self> {
         tracing::info!("OIDC server: {}", base_url);
-        let base_url = Url::parse(base_url)?;
-        let config = provider_metadata(&base_url).await?;
+        let config = provider_metadata(base_url).await?;
+        let logout_url = config
+            .additional_metadata()
+            .end_session_endpoint
+            .clone()
+            .ok_or_else(|| anyhow!("No logout URL"))?;
+
         let client = CoreClient::from_provider_metadata(
             config,
             oidc.client_id.clone(),
@@ -174,7 +181,7 @@ impl IdentityProvider {
         )
         .set_redirect_uri(oidc.redirect_url.clone());
 
-        Ok(Self { client })
+        Ok(Self { client, logout_url })
     }
 
     pub async fn refresh(&self, token: OidcToken) -> AnyResult<OidcToken> {
@@ -205,6 +212,15 @@ impl IdentityProvider {
         }
         let (auth_url, csrf_token, nonce) = auth_builder.set_pkce_challenge(challenge).url();
         (auth_url, csrf_token, verifier, nonce)
+    }
+
+    pub fn logout_oidc(&self, redirect_url: &Url) -> Url {
+        let mut logout_url = self.logout_url.url().clone();
+        let redirect_url = urlencoding::encode(redirect_url.as_str());
+        logout_url
+            .query_pairs_mut()
+            .append_pair("redirect_uri", &redirect_url);
+        logout_url
     }
 
     pub async fn token_oidc(
@@ -246,8 +262,8 @@ impl IdentityProvider {
     }
 }
 
-pub async fn provider_metadata(url: &Url) -> AnyResult<CoreProviderMetadata> {
+pub async fn provider_metadata(url: &Url) -> AnyResult<ProviderMetadataWithLogout> {
     let issuer = IssuerUrl::from_url(url.clone());
-    let config = CoreProviderMetadata::discover_async(issuer, async_http_client).await?;
+    let config = ProviderMetadataWithLogout::discover_async(issuer, async_http_client).await?;
     Ok(config)
 }

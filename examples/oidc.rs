@@ -46,14 +46,17 @@ async fn main() {
         redirect_url,
     )
     .expect("Invalid OIDC Credentials");
-    let idp = IdentityProvider::new(&oidc, &oidc_conf.idp_url.to_string())
+    let idp = IdentityProvider::new(&oidc, &oidc_conf.idp_url)
         .await
         .expect("Failed to establish Identity Provider connection");
     let idp = Arc::new(idp);
 
     // Routes
     let session = init_session_store();
-    let routes = sessions::routes(session.clone(), idp.clone())
+    let routes = sessions::routes(oidc_conf.logout_redirect_url.clone(),
+                                  session.clone(),
+                                  idp.clone())
+        .or(sessions::provider_routes(session.clone()))
         .or(warp::get()
             .and(authenticate(Some(idp.clone()), session.clone()))
             .and_then(hello_world)
