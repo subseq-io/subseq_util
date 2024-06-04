@@ -110,7 +110,7 @@ macro_rules! create_user_base {
                 if !email_address::EmailAddress::is_valid(email) {
                     let kind = diesel::result::DatabaseErrorKind::CheckViolation;
                     let msg = Box::new(ValidationErrorMessage {
-                        message: "Invalid email".to_string(),
+                        message: format!("Invalid email: {}", email),
                         column: "email".to_string(),
                         constraint_name: "email_restriction".to_string(),
                     });

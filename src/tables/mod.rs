@@ -204,6 +204,10 @@ pub mod harness {
             eprintln!("Connecting to url: {}", url);
             let mut conn =
                 PgConnection::establish(&url).expect("Cannot establish database connection");
+            let drop_db = diesel::sql_query(format!("DROP DATABASE IF EXISTS {}", database));
+            drop_db
+                .execute(&mut conn)
+                .expect(&format!("Creating {} failed", database));
             eprintln!("Creating database: {}", database);
             let query = diesel::sql_query(&format!("CREATE DATABASE {}", database));
             query
