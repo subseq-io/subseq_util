@@ -31,8 +31,18 @@ impl DatabaseError {
 impl warp::reject::Reject for DatabaseError {}
 
 #[derive(Debug)]
+pub struct MissingEnvKey {
+    pub key: String,
+}
+impl warp::reject::Reject for MissingEnvKey {}
+
+#[derive(Debug)]
 pub struct NotFoundError {}
 impl warp::reject::Reject for NotFoundError {}
+
+#[derive(Debug)]
+pub struct ForbiddenError {}
+impl warp::reject::Reject for ForbiddenError {}
 
 #[derive(Debug)]
 pub struct ParseError {}
@@ -109,6 +119,11 @@ pub async fn handle_rejection(
         let response = warp::reply::with_status(json, warp::http::StatusCode::NOT_FOUND);
         return Ok(Box::new(response));
     }
+    if let Some(_) = err.find::<ForbiddenError>() {
+        let json = warp::reply::json(&"Forbidden: Insufficient permissions");
+        let response = warp::reply::with_status(json, warp::http::StatusCode::FORBIDDEN);
+        return Ok(Box::new(response));
+    }
     if let Some(_) = err.find::<InvalidSessionToken>() {
         let json = warp::reply::json(&"Unauthorized");
         let response = warp::reply::with_status(json, warp::http::StatusCode::UNAUTHORIZED);
@@ -138,6 +153,13 @@ pub async fn handle_rejection(
     if let Some(err) = err.find::<TokenTransferFailed>() {
         tracing::error!("IdP is in down or degraded state! {}", err.msg);
         let json = warp::reply::json(&"Error communicating with identity provider");
+        let response =
+            warp::reply::with_status(json, warp::http::StatusCode::INTERNAL_SERVER_ERROR);
+        return Ok(Box::new(response));
+    }
+    if let Some(err) = err.find::<MissingEnvKey>() {
+        tracing::error!("Missing environment key: {}", err.key);
+        let json = warp::reply::json(&"Server configuration error");
         let response =
             warp::reply::with_status(json, warp::http::StatusCode::INTERNAL_SERVER_ERROR);
         return Ok(Box::new(response));
