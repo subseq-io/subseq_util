@@ -19,14 +19,14 @@ pub trait UserTable: Sized + Serialize + Clone {
 macro_rules! create_user_base {
     () => {
         #[derive(PartialEq, Queryable, Insertable, Clone, Debug, Serialize)]
-        #[diesel(table_name = $crate::schema::auth::metadata)]
+        #[diesel(table_name = crate::schema::auth::metadata)]
         pub struct UserMetadata {
             pub user_id: Uuid,
             pub data: serde_json::Value,
         }
 
         #[derive(PartialEq, Queryable, Insertable, Clone, Debug, Serialize)]
-        #[diesel(table_name = $crate::schema::auth::portraits)]
+        #[diesel(table_name = crate::schema::auth::portraits)]
         pub struct UserPortrait {
             pub user_id: Uuid,
             pub portrait: Vec<u8>,
