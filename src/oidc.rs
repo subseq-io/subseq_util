@@ -6,15 +6,14 @@ use std::sync::Once;
 
 use anyhow::{anyhow, Result as AnyResult};
 use openidconnect::core::{
-    CoreAuthenticationFlow,
-    CoreClient,
-    CoreIdToken,
-    CoreIdTokenClaims,
-    CoreTokenResponse,
+    CoreAuthenticationFlow, CoreClient, CoreIdToken, CoreIdTokenClaims, CoreTokenResponse,
 };
 use openidconnect::reqwest::Error as RequestError;
 use openidconnect::{
-    AccessToken, AccessTokenHash, AuthorizationCode, ClientId, ClientSecret, CsrfToken, EndSessionUrl, HttpRequest, HttpResponse, IssuerUrl, Nonce, OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier, ProviderMetadataWithLogout, RedirectUrl, RefreshToken, Scope, TokenResponse
+    AccessToken, AccessTokenHash, AuthorizationCode, ClientId, ClientSecret, CsrfToken,
+    EndSessionUrl, HttpRequest, HttpResponse, IssuerUrl, Nonce, OAuth2TokenResponse,
+    PkceCodeChallenge, PkceCodeVerifier, ProviderMetadataWithLogout, RedirectUrl, RefreshToken,
+    Scope, TokenResponse,
 };
 use reqwest::{redirect::Policy, Certificate, Client};
 use serde::{Deserialize, Serialize};
@@ -50,7 +49,9 @@ pub fn init_client_pool<P: Into<PathBuf>>(ca_path: Option<P>) {
             // Load the certificate
             let mut ca_file = File::open(ca_path).expect("Failed to open CA cert file");
             let mut buf = Vec::new();
-            ca_file.read_to_end(&mut buf).expect("CA file could not be read");
+            ca_file
+                .read_to_end(&mut buf)
+                .expect("CA file could not be read");
             pool_certs.push(Certificate::from_pem(&buf).expect("Invalid certificate"));
         }
         unsafe {
@@ -185,10 +186,21 @@ impl IdentityProvider {
         )
         .set_redirect_uri(oidc.redirect_url.clone());
 
-        Ok(Self { client, base_url: oidc.base_url.clone(), logout_url })
+        Ok(Self {
+            client,
+            base_url: oidc.base_url.clone(),
+            logout_url,
+        })
     }
 
-    pub async fn refresh(&self, token: OidcToken) -> AnyResult<OidcToken> { let refresh_token = match &token.refresh_token { Some(tok) => tok, None => anyhow::bail!("No refresh token"), }; let token_response = self .client .exchange_refresh_token(refresh_token)
+    pub async fn refresh(&self, token: OidcToken) -> AnyResult<OidcToken> {
+        let refresh_token = match &token.refresh_token {
+            Some(tok) => tok,
+            None => anyhow::bail!("No refresh token"),
+        };
+        let token_response = self
+            .client
+            .exchange_refresh_token(refresh_token)
             .request_async(async_http_client)
             .await?;
         match token.refresh(token_response) {

@@ -79,7 +79,7 @@ pub async fn handle_rejection(
         )));
     }
 
-    if let Some(_) = err.find::<NoSessionToken>() {
+    if err.find::<NoSessionToken>().is_some() {
         let auth_path = warp::http::Uri::try_from("/auth/login").expect("uri failed");
         let mut no_cache_headers = HeaderMap::new();
         no_cache_headers.append(
@@ -99,32 +99,32 @@ pub async fn handle_rejection(
         return Ok(Box::new(response));
     }
 
-    if let Some(_) = err.find::<ConflictError>() {
+    if err.find::<ConflictError>().is_some() {
         let json = warp::reply::json(&"Conflict: Resource already exists");
         let response = warp::reply::with_status(json, warp::http::StatusCode::CONFLICT);
         return Ok(Box::new(response));
     }
-    if let Some(_) = err.find::<ParseError>() {
+    if err.find::<ParseError>().is_some() {
         let json = warp::reply::json(&"Invalid parameter, parsing failed");
         let response = warp::reply::with_status(json, warp::http::StatusCode::BAD_REQUEST);
         return Ok(Box::new(response));
     }
-    if let Some(_) = err.find::<InvalidConfigurationError>() {
+    if err.find::<InvalidConfigurationError>().is_some() {
         let json = warp::reply::json(&"Invalid configuration provided, cannot complete request");
         let response = warp::reply::with_status(json, warp::http::StatusCode::BAD_REQUEST);
         return Ok(Box::new(response));
     }
-    if let Some(_) = err.find::<NotFoundError>() {
+    if err.find::<NotFoundError>().is_some() {
         let json = warp::reply::json(&"Not Found: Resource does not exist");
         let response = warp::reply::with_status(json, warp::http::StatusCode::NOT_FOUND);
         return Ok(Box::new(response));
     }
-    if let Some(_) = err.find::<ForbiddenError>() {
+    if err.find::<ForbiddenError>().is_some() {
         let json = warp::reply::json(&"Forbidden: Insufficient permissions");
         let response = warp::reply::with_status(json, warp::http::StatusCode::FORBIDDEN);
         return Ok(Box::new(response));
     }
-    if let Some(_) = err.find::<InvalidSessionToken>() {
+    if err.find::<InvalidSessionToken>().is_some() {
         let json = warp::reply::json(&"Unauthorized");
         let response = warp::reply::with_status(json, warp::http::StatusCode::UNAUTHORIZED);
         return Ok(Box::new(response));
@@ -143,7 +143,7 @@ pub async fn handle_rejection(
             warp::reply::with_status(json, warp::http::StatusCode::INTERNAL_SERVER_ERROR);
         return Ok(Box::new(response));
     }
-    if let Some(_) = err.find::<CsrfMismatch>() {
+    if err.find::<CsrfMismatch>().is_some() {
         tracing::error!("CSRF Mismatch!");
         let json = warp::reply::json(&"OIDC Configuration Error");
         let response =

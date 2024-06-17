@@ -29,10 +29,7 @@ pub async fn create_user_handler<U: UserTable>(
         Err(err) => return Err(warp::reject::custom(DatabaseError::new(err.to_string()))),
     };
     let UserPayload { username, email } = payload;
-    let opt_username = match &username {
-        Some(s) => Some(s.as_str()),
-        None => None,
-    };
+    let opt_username = username.as_deref();
     let user = match U::create(&mut conn, Uuid::new_v4(), &email, opt_username) {
         Ok(user) => user,
         Err(_) => return Err(warp::reject::custom(ConflictError {})),
