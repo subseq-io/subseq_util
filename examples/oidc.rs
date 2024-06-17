@@ -3,7 +3,11 @@ use std::fs::File;
 use std::sync::Arc;
 
 use subseq_util::{
-    api::{authenticate, handle_rejection, init_session_store, sessions::{self, store_auth_cookie}, AuthenticatedUser},
+    api::{
+        authenticate, handle_rejection, init_session_store,
+        sessions::{self, store_auth_cookie},
+        AuthenticatedUser,
+    },
     oidc::{init_client_pool, IdentityProvider, OidcCredentials},
     tracing::setup_tracing,
     BaseConfig, InnerConfig,
@@ -11,7 +15,10 @@ use subseq_util::{
 use warp::{Filter, Rejection, Reply};
 use warp_sessions::{MemoryStore, SessionWithStore};
 
-pub async fn hello_world(user: AuthenticatedUser, session: SessionWithStore<MemoryStore>) -> Result<(impl Reply, SessionWithStore<MemoryStore>), Rejection> {
+pub async fn hello_world(
+    user: AuthenticatedUser,
+    session: SessionWithStore<MemoryStore>,
+) -> Result<(impl Reply, SessionWithStore<MemoryStore>), Rejection> {
     let body = format!("<html>Hello {}!</html>", user.id());
     Ok((warp::reply::html(body), session))
 }
@@ -34,7 +41,13 @@ async fn main() {
         .as_ref()
         .expect("Must define OIDC for this example");
 
-    init_client_pool(tls_conf.ca_path.clone().expect("Need CA path in example").into());
+    init_client_pool(
+        tls_conf
+            .ca_path
+            .clone()
+            .expect("Need CA path in example")
+            .into(),
+    );
     let base_url = "https://localhost:8443";
     let redirect_url = "https://localhost:8443/auth";
     let oidc = OidcCredentials::new(
@@ -61,8 +74,7 @@ async fn main() {
             .and(authenticate(Some(idp.clone()), session.clone()))
             .and_then(hello_world)
             .untuple_one()
-            .and_then(store_auth_cookie)
-        )
+            .and_then(store_auth_cookie))
         .recover(handle_rejection);
 
     warp::serve(routes)

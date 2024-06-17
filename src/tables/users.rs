@@ -19,14 +19,14 @@ pub trait UserTable: Sized + Serialize + Clone {
 macro_rules! create_user_base {
     () => {
         #[derive(PartialEq, Queryable, Insertable, Clone, Debug, Serialize)]
-        #[diesel(table_name = crate::schema::auth::metadata)]
+        #[diesel(table_name = $crate::schema::auth::metadata)]
         pub struct UserMetadata {
             pub user_id: Uuid,
             pub data: serde_json::Value,
         }
 
         #[derive(PartialEq, Queryable, Insertable, Clone, Debug, Serialize)]
-        #[diesel(table_name = crate::schema::auth::portraits)]
+        #[diesel(table_name = $crate::schema::auth::portraits)]
         pub struct UserPortrait {
             pub user_id: Uuid,
             pub portrait: Vec<u8>,
@@ -52,7 +52,8 @@ macro_rules! create_user_base {
             fn eq(&self, other: &Self) -> bool {
                 self.id == other.id
                     && self.email == other.email
-                    && self.created.and_utc().timestamp_micros() == other.created.and_utc().timestamp_micros()
+                    && self.created.and_utc().timestamp_micros()
+                        == other.created.and_utc().timestamp_micros()
             }
         }
 
@@ -61,7 +62,9 @@ macro_rules! create_user_base {
                 let first_char_is_alpha =
                     username.chars().next().map_or(false, |c| c.is_alphabetic());
                 let valid_chars = vec!['_', '-', '.', '@', ' ', '+'];
-                username.chars().all(|c| c.is_alphanumeric() || valid_chars.contains(&c))
+                username
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || valid_chars.contains(&c))
                     && first_char_is_alpha
             }
         }
@@ -208,7 +211,7 @@ mod test {
             "1test-user",
             "1test+user",
             "!test_user",
-            "()user"
+            "()user",
         ];
         for username in valid {
             assert!(User::is_valid_username(username));

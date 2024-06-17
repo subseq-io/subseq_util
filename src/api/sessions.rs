@@ -76,8 +76,8 @@ pub struct CsrfMismatch;
 impl warp::reject::Reject for CsrfMismatch {}
 
 #[derive(Debug)]
-pub struct TokenTransferFailed{
-    pub msg: String
+pub struct TokenTransferFailed {
+    pub msg: String,
 }
 impl warp::reject::Reject for TokenTransferFailed {}
 
@@ -183,7 +183,11 @@ async fn auth_handler(
 
     let token = match idp.token_oidc(code, verifier, nonce).await {
         Ok(token) => token,
-        Err(err) => return Err(warp::reject::custom(TokenTransferFailed{msg: err.to_string()})),
+        Err(err) => {
+            return Err(warp::reject::custom(TokenTransferFailed {
+                msg: err.to_string(),
+            }))
+        }
     };
 
     session.session.insert("token", token).ok();
@@ -297,21 +301,19 @@ pub fn authenticate(
                                 Err(warp::reject::custom(NoSessionToken {}))
                             }
                         }
+                    } else if let Some(token) = token {
+                        let NoAuthToken { user_id } = serde_json::from_str(&token)
+                            .map_err(|_| warp::reject::custom(InvalidSessionToken))?;
+                        Ok((
+                            AuthenticatedUser(
+                                user_id,
+                                "FAKE_NAME".to_string(),
+                                "FAKE_EMAIL".to_string(),
+                            ),
+                            session,
+                        ))
                     } else {
-                        if let Some(token) = token {
-                            let NoAuthToken { user_id } = serde_json::from_str(&token)
-                                .map_err(|_| warp::reject::custom(InvalidSessionToken))?;
-                            Ok((
-                                AuthenticatedUser(
-                                    user_id,
-                                    "FAKE_NAME".to_string(),
-                                    "FAKE_EMAIL".to_string(),
-                                ),
-                                session,
-                            ))
-                        } else {
-                            Err(warp::reject::custom(NoSessionToken {}))
-                        }
+                        Err(warp::reject::custom(NoSessionToken {}))
                     }
                 }
             },
@@ -392,11 +394,11 @@ pub fn provider_routes(
 }
 
 async fn logout_handler(
-        idp: Arc<IdentityProvider>,
-        session: SessionWithStore<MemoryStore>,
-        token: String) -> Result<(impl Reply, SessionWithStore<MemoryStore>), Rejection> {
-    let token = parse_auth_cookie(&token)
-        .map_err(|_| warp::reject::custom(InvalidSessionToken))?;
+    idp: Arc<IdentityProvider>,
+    session: SessionWithStore<MemoryStore>,
+    token: String,
+) -> Result<(impl Reply, SessionWithStore<MemoryStore>), Rejection> {
+    let token = parse_auth_cookie(&token).map_err(|_| warp::reject::custom(InvalidSessionToken))?;
     let logout_url = idp.logout_oidc("/", &token);
     let uri = logout_url.as_str().parse::<warp::http::Uri>().unwrap();
 

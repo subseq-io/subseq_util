@@ -2,14 +2,21 @@ use std::env;
 use std::fs::File;
 
 use subseq_util::{
-    api::{authenticate, handle_rejection, init_session_store, sessions::{self, store_auth_cookie}, AuthenticatedUser},
+    api::{
+        authenticate, handle_rejection, init_session_store,
+        sessions::{self, store_auth_cookie},
+        AuthenticatedUser,
+    },
     tracing::setup_tracing,
     BaseConfig, InnerConfig,
 };
 use warp::{Filter, Rejection, Reply};
 use warp_sessions::{MemoryStore, SessionWithStore};
 
-pub async fn hello_world(user: AuthenticatedUser, session: SessionWithStore<MemoryStore>) -> Result<(impl Reply, SessionWithStore<MemoryStore>), Rejection> {
+pub async fn hello_world(
+    user: AuthenticatedUser,
+    session: SessionWithStore<MemoryStore>,
+) -> Result<(impl Reply, SessionWithStore<MemoryStore>), Rejection> {
     let body = format!("<html>Hello {}!</html>", user.id());
     Ok((warp::reply::html(body), session))
 }
@@ -36,8 +43,7 @@ async fn main() {
             .and(authenticate(None, session.clone()))
             .and_then(hello_world)
             .untuple_one()
-            .and_then(store_auth_cookie)
-        )
+            .and_then(store_auth_cookie))
         .recover(handle_rejection);
 
     warp::serve(routes)

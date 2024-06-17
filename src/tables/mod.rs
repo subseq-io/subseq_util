@@ -168,7 +168,7 @@ pub mod harness {
                                            WHERE datname = '{}';",
                 self.db_name
             );
-            if diesel::sql_query(&disconnect_users)
+            if diesel::sql_query(disconnect_users)
                 .execute(&mut conn)
                 .is_err()
             {
@@ -178,9 +178,8 @@ pub mod harness {
 
             eprintln!("Drop database: {}", self.db_name);
             let drop_db = format!("DROP DATABASE {}", self.db_name);
-            if diesel::sql_query(&drop_db).execute(&mut conn).is_err() {
+            if diesel::sql_query(drop_db).execute(&mut conn).is_err() {
                 eprintln!("Failed to drop database {}", self.db_name);
-                return;
             }
         }
     }
@@ -207,12 +206,12 @@ pub mod harness {
             let drop_db = diesel::sql_query(format!("DROP DATABASE IF EXISTS {}", database));
             drop_db
                 .execute(&mut conn)
-                .expect(&format!("Creating {} failed", database));
+                .unwrap_or_else(|_| panic!("Creating {} failed", database));
             eprintln!("Creating database: {}", database);
-            let query = diesel::sql_query(&format!("CREATE DATABASE {}", database));
+            let query = diesel::sql_query(format!("CREATE DATABASE {}", database));
             query
                 .execute(&mut conn)
-                .expect(&format!("Creating {} failed", database));
+                .unwrap_or_else(|_| panic!("Creating {} failed", database));
             let url = db_conf.db_url(&database);
             eprintln!("Connecting to url: {}", url);
             let mut db_conn =
