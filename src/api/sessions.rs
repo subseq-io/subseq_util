@@ -1,3 +1,4 @@
+use std::string::ToString;
 use std::sync::Arc;
 
 use cookie::{Cookie, SameSite};
@@ -21,6 +22,9 @@ pub struct AuthenticatedUser {
     username: String,
     email: String,
     email_verified: bool,
+
+    given_name: Option<String>,
+    family_name: Option<String>,
 }
 
 impl AuthenticatedUser {
@@ -64,6 +68,12 @@ impl AuthenticatedUser {
             })
             .ok_or_else(|| "No email in claims".to_string())?;
         let email_verified = claims.email_verified().unwrap_or(false);
+        let given_name = claims
+            .given_name()
+            .and_then(|name| name.get(None).map(|name| name.to_string()));
+        let family_name = claims
+            .family_name()
+            .and_then(|name| name.get(None).map(|name| name.to_string()));
 
         tracing::trace!("Token validated");
         Ok((
@@ -72,6 +82,8 @@ impl AuthenticatedUser {
                 username: user_name.to_string(),
                 email: user_email.to_string(),
                 email_verified,
+                given_name,
+                family_name,
             },
             token,
         ))
@@ -91,6 +103,14 @@ impl AuthenticatedUser {
 
     pub fn email_verified(&self) -> bool {
         self.email_verified
+    }
+
+    pub fn given_name(&self) -> Option<String> {
+        self.given_name.clone()
+    }
+
+    pub fn family_name(&self) -> Option<String> {
+        self.family_name.clone()
     }
 }
 
@@ -356,6 +376,8 @@ pub fn authenticate(
                                 username: "FAKE_NAME".to_string(),
                                 email: "FAKE_EMAIL".to_string(),
                                 email_verified: false,
+                                given_name: None,
+                                family_name: None,
                             },
                             session,
                         ))
