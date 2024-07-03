@@ -21,24 +21,30 @@ impl AuthenticatedUser {
     pub async fn validate_session(
         idp: Arc<IdentityProvider>,
         token: OidcToken,
-    ) -> Option<(Self, Option<OidcToken>)> {
+    ) -> Result<(Self, Option<OidcToken>), String> {
         let (claims, token) = match idp.validate_token(&token) {
             Ok(claims) => (claims, None),
             Err(_) => {
                 // Try to refresh
                 tracing::trace!("Refresh happening");
-                let token = idp.refresh(token).await.ok()?;
+                let token = idp.refresh(token).await.map_err(|e| format!("refresh: {}", e.to_string()))?;
                 tracing::trace!("Refresh complete");
-                (idp.validate_token(&token).ok()?, Some(token))
+                (idp.validate_token(&token).map_err(|e| format!("validate_token: {}", e.to_string()))?,
+                 Some(token))
             }
         };
         tracing::trace!("Claims");
-        let user_id = Uuid::parse_str(claims.subject().as_str()).ok()?;
-        let user_name = claims.preferred_username()?.as_str();
-        let user_email = claims.email()?.as_str();
+        let user_id = Uuid::parse_str(claims.subject().as_str())
+            .map_err(|e| format!("parse uuid: {}", e.to_string()))?;
+        let user_name = claims.preferred_username()
+            .ok_or_else(|| "No preferred username in claims".to_string())?
+            .as_str();
+        let user_email = claims.email()
+            .ok_or_else(|| "No email in claims".to_string())?
+            .as_str();
 
         tracing::trace!("Token validated");
-        Some((
+        Ok((
             Self(user_id, user_name.to_string(), user_email.to_string()),
             token,
         ))
@@ -201,7 +207,10 @@ async fn auth_handler(
 }
 
 fn parse_auth_cookie(cookie_str: &str) -> Result<OidcToken, Rejection> {
-    serde_json::from_str(cookie_str).map_err(|_| warp::reject::custom(InvalidSessionToken))
+    serde_json::from_str(cookie_str).map_err(|_| {
+        tracing::error!("Invalid session token: {}", cookie_str);
+        warp::reject::custom(InvalidSessionToken)
+    })
 }
 
 pub async fn store_auth_cookie<T: Reply>(
@@ -285,7 +294,10 @@ pub fn authenticate(
                                 let (auth_user, token) =
                                     AuthenticatedUser::validate_session(idp, token)
                                         .await
-                                        .ok_or_else(|| warp::reject::custom(InvalidSessionToken))?;
+                                        .map_err(|err| {
+                                            tracing::error!("Authentication for user failed: {}", err);
+                                            warp::reject::custom(InvalidSessionToken)
+                                        })?;
                                 if let Some(token) = token {
                                     tracing::trace!("Reset token");
                                     let inner_session = &mut session.session;
