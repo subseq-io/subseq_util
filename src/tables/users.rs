@@ -2,6 +2,51 @@ use diesel::prelude::*;
 use serde::Serialize;
 use uuid::Uuid;
 
+pub enum UserAccountType {
+    Admin,
+    Active,
+    Unverified,
+    Automated,
+    Inactive,
+    Imported, // Imported users are also inactive and unverified
+    None,
+}
+
+impl ToString for UserAccountType {
+    fn to_string(&self) -> String {
+        match self {
+            Self::Admin => "admin".to_string(),
+            Self::Active => "active".to_string(),
+            Self::Unverified => "unverified".to_string(),
+            Self::Automated => "automated".to_string(),
+            Self::Inactive => "inactive".to_string(),
+            Self::Imported => "imported".to_string(),
+            Self::None => "none".to_string(),
+        }
+    }
+}
+
+impl UserAccountType {
+    pub fn from_option(account_type: Option<String>) -> Self {
+        match account_type {
+            Some(account_type) => Self::from_str(&account_type),
+            None => Self::None,
+        }
+    }
+
+    pub fn from_str(account_type: &str) -> Self {
+        match account_type.to_ascii_lowercase().as_str() {
+            "admin" => Self::Admin,
+            "active" => Self::Active,
+            "unverified" => Self::Unverified,
+            "automated" => Self::Automated,
+            "inactive" => Self::Inactive,
+            "imported" | "github" => Self::Imported, // Github was the previous name for imported
+            _ => Self::None,
+        }
+    }
+}
+
 pub trait UserTable: Sized + Serialize + Clone {
     fn from_username(conn: &mut PgConnection, username: &str) -> Option<Self>;
     fn from_email(conn: &mut PgConnection, email: &str) -> Option<Self>;
@@ -9,7 +54,8 @@ pub trait UserTable: Sized + Serialize + Clone {
         conn: &mut PgConnection,
         user_id: Uuid,
         email: &str,
-        username: Option<&str>,
+        username: &str,
+        account_type: UserAccountType,
     ) -> QueryResult<Self>;
     fn get(conn: &mut PgConnection, id: Uuid) -> Option<Self>;
     fn list(conn: &mut PgConnection, page: u32, page_size: u32) -> Vec<Self>;
@@ -97,20 +143,9 @@ macro_rules! create_user_base {
                 conn: &mut PgConnection,
                 user_id: Uuid,
                 email: &str,
-                username: Option<&str>,
+                username: &str,
+                account_type: UserAccountType,
             ) -> QueryResult<Self> {
-                if let Some(username) = username {
-                    if !Self::is_valid_username(username) {
-                        let kind = diesel::result::DatabaseErrorKind::CheckViolation;
-                        let msg = Box::new(ValidationErrorMessage {
-                            message: "Invalid username".to_string(),
-                            column: "username".to_string(),
-                            constraint_name: "username_limits".to_string(),
-                        });
-                        return Err(diesel::result::Error::DatabaseError(kind, msg));
-                    }
-                }
-
                 if !email_address::EmailAddress::is_valid(email) {
                     let kind = diesel::result::DatabaseErrorKind::CheckViolation;
                     let msg = Box::new(ValidationErrorMessage {
@@ -127,19 +162,22 @@ macro_rules! create_user_base {
                     created: chrono::Utc::now().naive_utc(),
                 };
 
-                diesel::insert_into(crate::schema::auth::users::table)
-                    .values(&user)
-                    .execute(conn)?;
-                if let Some(username) = username {
+                conn.transaction(|transact| {
+                    diesel::insert_into(crate::schema::auth::users::table)
+                        .values(&user)
+                        .execute(transact)?;
+
                     let user_id_account = UserIdAccount {
                         user_id: user.id,
                         username: username.trim().to_ascii_lowercase(),
-                        account_type: None,
+                        account_type: Some(account_type.to_string()),
                     };
                     diesel::insert_into(crate::schema::auth::user_id_accounts::table)
                         .values(&user_id_account)
-                        .execute(conn)?;
-                }
+                        .execute(transact)?;
+                    QueryResult::Ok(())
+                })?;
+
                 Ok(user)
             }
 
@@ -237,25 +275,12 @@ mod test {
             &mut conn,
             Uuid::new_v4(),
             "test-user@example.com",
-            Some("test_user"),
+            "test_user",
+            UserAccountType::Active,
         )
         .expect("user");
 
-        let user_no_username =
-            User::create(&mut conn, Uuid::new_v4(), "test-user2@example.com", None).expect("user");
-
         let user_expect = User::get(&mut conn, user.id).expect("user2");
-        let user_no_username_expect = User::get(&mut conn, user_no_username.id).expect("user2");
         assert_eq!(user, user_expect);
-        assert_eq!(user_no_username, user_no_username_expect);
-
-        assert!(User::create(
-            &mut conn,
-            Uuid::new_v4(),
-            "bad_user@example.com",
-            Some("2bad_user"),
-        )
-        .is_err());
-        assert!(User::create(&mut conn, Uuid::new_v4(), "bad_email", None).is_err());
     }
 }

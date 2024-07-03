@@ -9,11 +9,10 @@ use super::*;
 use crate::api::sessions::store_auth_cookie;
 use crate::oidc::IdentityProvider;
 use crate::router::Router;
-use crate::tables::{DbPool, UserTable};
+use crate::tables::{DbPool, UserAccountType, UserTable};
 
 #[derive(Deserialize)]
 pub struct UserPayload {
-    username: Option<String>,
     email: String,
 }
 
@@ -28,9 +27,14 @@ pub async fn create_user_handler<U: UserTable>(
         Ok(conn) => conn,
         Err(err) => return Err(warp::reject::custom(DatabaseError::new(err.to_string()))),
     };
-    let UserPayload { username, email } = payload;
-    let opt_username = username.as_deref();
-    let user = match U::create(&mut conn, Uuid::new_v4(), &email, opt_username) {
+    let UserPayload { email } = payload;
+    let user = match U::create(
+        &mut conn,
+        Uuid::new_v4(),
+        &email,
+        &email,
+        UserAccountType::Unverified,
+    ) {
         Ok(user) => user,
         Err(_) => return Err(warp::reject::custom(ConflictError {})),
     };

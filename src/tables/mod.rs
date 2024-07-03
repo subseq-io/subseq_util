@@ -3,7 +3,7 @@ use diesel::r2d2::{ConnectionManager, Pool};
 use std::time::Duration;
 
 pub mod users;
-pub use users::UserTable;
+pub use users::{UserAccountType, UserTable};
 
 pub type DbPool = Pool<ConnectionManager<PgConnection>>;
 const DB_TIMEOUT: Duration = Duration::from_secs(3);
