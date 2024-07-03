@@ -17,7 +17,8 @@ use crate::oidc::{IdentityProvider, OidcToken};
 
 fn is_email_valid(email: &str) -> bool {
     lazy_static! {
-        static ref RE: Regex = Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
+        static ref RE: Regex =
+            Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
     }
     RE.is_match(email)
 }
@@ -40,23 +41,34 @@ impl AuthenticatedUser {
             Err(_) => {
                 // Try to refresh
                 tracing::trace!("Refresh happening");
-                let token = idp.refresh(token).await.map_err(|e| format!("refresh: {}", e.to_string()))?;
+                let token = idp
+                    .refresh(token)
+                    .await
+                    .map_err(|e| format!("refresh: {}", e))?;
                 tracing::trace!("Refresh complete");
-                (idp.validate_token(&token).map_err(|e| format!("validate_token: {}", e.to_string()))?,
-                 Some(token))
+                (
+                    idp.validate_token(&token)
+                        .map_err(|e| format!("validate_token: {}", e))?,
+                    Some(token),
+                )
             }
         };
         tracing::trace!("Claims");
-        let user_id = Uuid::parse_str(claims.subject().as_str())
-            .map_err(|e| format!("parse uuid: {}", e.to_string()))?;
-        let user_name = claims.preferred_username()
+        let user_id =
+            Uuid::parse_str(claims.subject().as_str()).map_err(|e| format!("parse uuid: {}", e))?;
+        let user_name = claims
+            .preferred_username()
             .ok_or_else(|| "No preferred username in claims".to_string())?
             .as_str();
-        let user_email = claims.email().map(|email| email.as_str())
-            .or_else(|| if is_email_valid(user_name) {
-                Some(user_name)
-            } else {
-                None
+        let user_email = claims
+            .email()
+            .map(|email| email.as_str())
+            .or_else(|| {
+                if is_email_valid(user_name) {
+                    Some(user_name)
+                } else {
+                    None
+                }
             })
             .ok_or_else(|| "No email in claims".to_string())?;
         let email_verified = claims.email_verified().unwrap_or(false);
@@ -67,7 +79,7 @@ impl AuthenticatedUser {
                 id: user_id,
                 username: user_name.to_string(),
                 email: user_email.to_string(),
-                email_verified
+                email_verified,
             },
             token,
         ))
@@ -322,7 +334,10 @@ pub fn authenticate(
                                     AuthenticatedUser::validate_session(idp, token)
                                         .await
                                         .map_err(|err| {
-                                            tracing::error!("Authentication for user failed: {}", err);
+                                            tracing::error!(
+                                                "Authentication for user failed: {}",
+                                                err
+                                            );
                                             warp::reject::custom(InvalidSessionToken)
                                         })?;
                                 if let Some(token) = token {

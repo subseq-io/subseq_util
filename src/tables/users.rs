@@ -15,6 +15,7 @@ pub trait UserTable: Sized + Serialize + Clone {
     fn list(conn: &mut PgConnection, page: u32, page_size: u32) -> Vec<Self>;
 }
 
+#[allow(clippy::crate_in_macro_def)]
 #[macro_export]
 macro_rules! create_user_base {
     () => {
