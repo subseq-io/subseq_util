@@ -22,7 +22,7 @@ tracing = "0.1.40"
 tracing-subscriber = {version = "0.3.18", features=["env-filter"]}
 url = "2.4.0"
 urlencoding = "2.1.3"
-uuid = { version = "<2.0.0", features = ["v4", "serde"] }
+uuid = { version = "1.8.0", features = ["v4", "serde"] }
 warp = { version = "0.3.6", features = ["tls"] }
 warp-sessions = "1.0.19"
 
