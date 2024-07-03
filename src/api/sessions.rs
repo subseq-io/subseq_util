@@ -3,6 +3,7 @@ use std::sync::Arc;
 use cookie::{Cookie, SameSite};
 use lazy_static::lazy_static;
 use openidconnect::{AuthorizationCode, Nonce, PkceCodeVerifier};
+use regex::Regex;
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -14,8 +15,20 @@ use warp_sessions::{
 
 use crate::oidc::{IdentityProvider, OidcToken};
 
+fn is_email_valid(email: &str) -> bool {
+    lazy_static! {
+        static ref RE: Regex = Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
+    }
+    RE.is_match(email)
+}
+
 #[derive(Clone, Debug)]
-pub struct AuthenticatedUser(Uuid, String, String);
+pub struct AuthenticatedUser {
+    id: Uuid,
+    username: String,
+    email: String,
+    email_verified: bool,
+}
 
 impl AuthenticatedUser {
     pub async fn validate_session(
@@ -39,27 +52,41 @@ impl AuthenticatedUser {
         let user_name = claims.preferred_username()
             .ok_or_else(|| "No preferred username in claims".to_string())?
             .as_str();
-        let user_email = claims.email()
-            .ok_or_else(|| "No email in claims".to_string())?
-            .as_str();
+        let user_email = claims.email().map(|email| email.as_str())
+            .or_else(|| if is_email_valid(user_name) {
+                Some(user_name)
+            } else {
+                None
+            })
+            .ok_or_else(|| "No email in claims".to_string())?;
+        let email_verified = claims.email_verified().unwrap_or(false);
 
         tracing::trace!("Token validated");
         Ok((
-            Self(user_id, user_name.to_string(), user_email.to_string()),
+            Self {
+                id: user_id,
+                username: user_name.to_string(),
+                email: user_email.to_string(),
+                email_verified
+            },
             token,
         ))
     }
 
     pub fn id(&self) -> Uuid {
-        self.0
+        self.id
     }
 
     pub fn username(&self) -> String {
-        self.1.clone()
+        self.username.clone()
     }
 
     pub fn email(&self) -> String {
-        self.2.clone()
+        self.email.clone()
+    }
+
+    pub fn email_verified(&self) -> bool {
+        self.email_verified
     }
 }
 
@@ -317,11 +344,12 @@ pub fn authenticate(
                         let NoAuthToken { user_id } = serde_json::from_str(&token)
                             .map_err(|_| warp::reject::custom(InvalidSessionToken))?;
                         Ok((
-                            AuthenticatedUser(
-                                user_id,
-                                "FAKE_NAME".to_string(),
-                                "FAKE_EMAIL".to_string(),
-                            ),
+                            AuthenticatedUser {
+                                id: user_id,
+                                username: "FAKE_NAME".to_string(),
+                                email: "FAKE_EMAIL".to_string(),
+                                email_verified: false,
+                            },
                             session,
                         ))
                     } else {
@@ -496,4 +524,16 @@ pub fn no_auth_routes(
         .untuple_one()
         .and_then(store_auth_cookie);
     warp::path("auth").and(login.or(auth))
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn test_is_email_valid() {
+        assert!(is_email_valid("test@example.com"));
+        assert!(is_email_valid("test+me@example.com"));
+        assert!(is_email_valid("test_ah11313@goog-le.com"));
+        assert!(!is_email_valid("billbeezus"));
+    }
 }
