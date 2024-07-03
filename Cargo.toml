@@ -11,10 +11,10 @@ console-subscriber = {version = "0.2.0", optional=true}
 cookie = "0.18.0"
 diesel = { version = "2.2.1", features = ["chrono", "r2d2", "postgres", "postgres_backend", "uuid", "serde_json"] }
 diesel_migrations = { version = "2.1.0", features = ["postgres"] }
+email_address = "0.2.4"
 function_name = "0.3.0"
 lazy_static = "1.4.0"
 openidconnect = "3.4.0"
-regex = "1.10.5"
 reqwest = { version = "0.11.23", features = ["json", "rustls-tls"] }
 serde = "1.0.194"
 serde_json = "1.0.111"

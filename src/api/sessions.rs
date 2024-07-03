@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use cookie::{Cookie, SameSite};
+use email_address::EmailAddress;
 use lazy_static::lazy_static;
 use openidconnect::{AuthorizationCode, Nonce, PkceCodeVerifier};
-use regex::Regex;
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -14,14 +14,6 @@ use warp_sessions::{
 };
 
 use crate::oidc::{IdentityProvider, OidcToken};
-
-fn is_email_valid(email: &str) -> bool {
-    lazy_static! {
-        static ref RE: Regex =
-            Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
-    }
-    RE.is_match(email)
-}
 
 #[derive(Clone, Debug)]
 pub struct AuthenticatedUser {
@@ -64,7 +56,7 @@ impl AuthenticatedUser {
             .email()
             .map(|email| email.as_str())
             .or_else(|| {
-                if is_email_valid(user_name) {
+                if EmailAddress::is_valid(user_name) {
                     Some(user_name)
                 } else {
                     None
@@ -539,16 +531,4 @@ pub fn no_auth_routes(
         .untuple_one()
         .and_then(store_auth_cookie);
     warp::path("auth").and(login.or(auth))
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    #[test]
-    fn test_is_email_valid() {
-        assert!(is_email_valid("test@example.com"));
-        assert!(is_email_valid("test+me@example.com"));
-        assert!(is_email_valid("test_ah11313@goog-le.com"));
-        assert!(!is_email_valid("billbeezus"));
-    }
 }

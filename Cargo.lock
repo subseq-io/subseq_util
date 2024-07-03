@@ -2457,7 +2457,6 @@ dependencies = [
  "function_name",
  "lazy_static",
  "openidconnect",
- "regex",
  "reqwest",
  "serde",
  "serde_json",
