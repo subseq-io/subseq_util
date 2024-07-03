@@ -87,6 +87,49 @@ macro_rules! create_user_base {
             pub account_type: Option<String>,
         }
 
+        impl UserIdAccount {
+            pub fn create(
+                conn: &mut PgConnection,
+                user_id: Uuid,
+                username: String,
+                account_type: UserAccountType,
+            ) -> QueryResult<Self> {
+                let id = Self {
+                    user_id,
+                    username,
+                    account_type: Some(account_type.to_string()),
+                };
+                diesel::insert_into(crate::schema::auth::user_id_accounts::table)
+                    .values(&id)
+                    .execute(conn)?;
+                Ok(id)
+            }
+
+            pub fn get(conn: &mut PgConnection, user_id: Uuid) -> Option<Self> {
+                use crate::schema::auth::user_id_accounts::dsl::user_id_accounts;
+                user_id_accounts
+                    .find(user_id)
+                    .get_result::<UserIdAccount>(conn)
+                    .optional()
+                    .ok()?
+            }
+
+            pub fn set_account_type(
+                &mut self,
+                conn: &mut PgConnection,
+                account_type: UserAccountType,
+            ) -> QueryResult<()> {
+                use crate::schema::auth::user_id_accounts::dsl::{
+                    account_type as account_type_col, user_id_accounts,
+                };
+                self.account_type = Some(account_type.to_string());
+                diesel::update(user_id_accounts.find(self.user_id))
+                    .set(account_type_col.eq(account_type.to_string()))
+                    .execute(conn)?;
+                Ok(())
+            }
+        }
+
         #[derive(Queryable, Insertable, Clone, Debug, Serialize, Deserialize)]
         #[diesel(table_name = crate::schema::auth::users)]
         pub struct User {
