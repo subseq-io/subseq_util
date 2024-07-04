@@ -2,7 +2,9 @@ use diesel::pg::PgConnection;
 use diesel::r2d2::{ConnectionManager, Pool};
 use std::time::Duration;
 
+pub mod email;
 pub mod users;
+pub use email::{gen_rand_string, EmailVerification, UnverifiedEmailTable};
 pub use users::{UserAccountType, UserTable};
 
 pub type DbPool = Pool<ConnectionManager<PgConnection>>;
@@ -84,7 +86,6 @@ pub mod harness {
     use diesel::pg::PgConnection;
     use diesel::prelude::*;
     use diesel::sql_query;
-    use diesel::sql_types::Text;
     use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 
     pub const AUTH_MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations/");
@@ -119,15 +120,16 @@ pub mod harness {
         db_name
     }
 
-    #[derive(QueryableByName, Debug)]
-    pub struct Table {
-        #[sql_type = "Text"]
-        pub tablename: String,
-    }
+    pub fn list_tables(connection: &mut PgConnection) -> QueryResult<Vec<String>> {
+        #[derive(QueryableByName)]
+        struct Table {
+            #[diesel(sql_type = diesel::sql_types::Text)]
+            tablename: String,
+        }
 
-    pub fn list_tables(connection: &mut PgConnection) -> QueryResult<Vec<Table>> {
         sql_query("SELECT tablename FROM pg_tables WHERE schemaname = 'auth'")
             .load::<Table>(connection)
+            .map(|tables| tables.into_iter().map(|t| t.tablename).collect())
     }
 
     fn run_migrations(
