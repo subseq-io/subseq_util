@@ -1,5 +1,6 @@
 pub mod api;
 pub mod oidc;
+pub mod rate_limit;
 pub mod router;
 pub mod schema;
 pub mod server;
