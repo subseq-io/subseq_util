@@ -10,6 +10,15 @@ pub mod auth {
     }
 
     diesel::table! {
+        auth.pending_email_verifications (email) {
+            id -> Varchar,
+            email -> Varchar,
+            created -> Timestamp,
+            expires -> Timestamp
+        }
+    }
+
+    diesel::table! {
         auth.portraits (user_id) {
             user_id -> Uuid,
             portrait -> Bytea,

@@ -12,6 +12,7 @@ pub enum UserAccountType {
     None,
 }
 
+#[allow(clippy::to_string_trait_impl)]
 impl ToString for UserAccountType {
     fn to_string(&self) -> String {
         match self {
@@ -34,6 +35,7 @@ impl UserAccountType {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(account_type: &str) -> Self {
         match account_type.to_ascii_lowercase().as_str() {
             "admin" => Self::Admin,
@@ -147,18 +149,6 @@ macro_rules! create_user_base {
             }
         }
 
-        impl User {
-            pub fn is_valid_username(username: &str) -> bool {
-                let first_char_is_alpha =
-                    username.chars().next().map_or(false, |c| c.is_alphabetic());
-                let valid_chars = vec!['_', '-', '.', '@', ' ', '+'];
-                username
-                    .chars()
-                    .all(|c| c.is_alphanumeric() || valid_chars.contains(&c))
-                    && first_char_is_alpha
-            }
-        }
-
         impl UserTable for User {
             fn from_username(conn: &mut PgConnection, username: &str) -> Option<Self> {
                 use crate::schema::auth::user_id_accounts;
@@ -265,45 +255,6 @@ mod test {
     create_user_base!();
 
     #[test]
-    fn test_username_check() {
-        let valid = vec![
-            "test_user",
-            "test.user",
-            "test-user",
-            "test+user",
-            "test+me@user.com",
-            "test user",
-            "test_user1",
-            "test_user_1",
-            "test.user1",
-            "test.user.1",
-            "test-user1",
-            "test-user-1",
-            "test+user1",
-            "Test User",
-            "test+user+1",
-            "test@user1",
-            "test@user@1",
-            "test user1",
-            "test user 1",
-        ];
-        let invalid = vec![
-            "1test_user",
-            "1test.user",
-            "1test-user",
-            "1test+user",
-            "!test_user",
-            "()user",
-        ];
-        for username in valid {
-            assert!(User::is_valid_username(username));
-        }
-        for username in invalid {
-            assert!(!User::is_valid_username(username));
-        }
-    }
-
-    #[test]
     #[named]
     fn test_user_handle() {
         let db_name = to_pg_db_name(function_name!());
@@ -311,7 +262,7 @@ mod test {
         let mut conn = harness.conn();
 
         for table_name in list_tables(&mut conn).expect("Tables not retrieved") {
-            eprintln!("Table: {:?}", table_name.tablename);
+            eprintln!("Table: {:?}", table_name);
         }
 
         let user = User::create(
