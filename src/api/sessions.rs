@@ -7,6 +7,7 @@ use lazy_static::lazy_static;
 use openidconnect::{AuthorizationCode, Nonce, PkceCodeVerifier};
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
+use urlencoding::decode;
 use uuid::Uuid;
 use warp::http::{header::AUTHORIZATION, Response};
 use warp::{filters::path::FullPath, reply::WithHeader, Filter, Rejection, Reply};
@@ -152,7 +153,13 @@ impl warp::reject::Reject for NoSessionToken {}
 
 pub const AUTH_COOKIE: &str = "access_token";
 
+#[derive(Serialize, Deserialize)]
+pub struct RedirectQuery {
+    origin: Option<String>,
+}
+
 async fn login_handler(
+    query: RedirectQuery,
     mut session: SessionWithStore<MemoryStore>,
     idp: Arc<IdentityProvider>,
 ) -> Result<(impl Reply, SessionWithStore<MemoryStore>), Rejection> {
@@ -170,9 +177,19 @@ async fn login_handler(
         .session
         .insert("nonce", nonce.secret().clone())
         .map_err(|_| warp::reject::custom(SessionsError {}))?;
+    if let Some(redirect_uri) = query.origin {
+        session
+            .session
+            .insert("redirect_uri", redirect_uri)
+            .map_err(|_| warp::reject::custom(SessionsError {}))?;
+    }
 
-    let uri: warp::http::Uri = auth_url
-        .to_string()
+    Ok((redirect(auth_url)?, session))
+}
+
+fn redirect<U: Into<String>>(url: U) -> Result<Response<hyper::Body>, Rejection> {
+    let uri: warp::http::Uri = url
+        .into()
         .try_into()
         .map_err(|_| warp::reject::custom(UrlError {}))?;
     let mut no_cache_headers = HeaderMap::new();
@@ -189,7 +206,7 @@ async fn login_handler(
     let mut response = reply.into_response();
     let headers = response.headers_mut();
     headers.extend(no_cache_headers);
-    Ok((response, session))
+    Ok(response)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -209,33 +226,37 @@ async fn auth_handler(
     let csrf_token = match session.session.get::<String>("csrf_token") {
         Some(csrf_token) => csrf_token,
         None => {
-            return Err(warp::reject::custom(OidcError {
-                msg: "Missing csrf token",
-            }))
+            tracing::warn!("Missing csrf token");
+            return Ok((redirect("auth/login")?, session));
         }
     };
 
     let verifier = match session.session.get::<String>("pkce_verifier") {
         Some(pkce_verifier) => PkceCodeVerifier::new(pkce_verifier),
         None => {
-            return Err(warp::reject::custom(OidcError {
-                msg: "Missing pkce verifier",
-            }))
+            tracing::warn!("Missing PKCE verifier");
+            return Ok((redirect("auth/login")?, session));
         }
     };
 
     let nonce = match session.session.get::<String>("nonce") {
         Some(nonce) => Nonce::new(nonce),
         None => {
-            return Err(warp::reject::custom(OidcError {
-                msg: "Missing nonce",
-            }))
+            tracing::warn!("Missing nonce");
+            return Ok((redirect("auth/login")?, session));
         }
+    };
+
+    let redirect_uri = match session.session.get::<String>("redirect_uri") {
+        Some(redirect_uri) => decode(&redirect_uri)
+            .map(|s| s.to_owned().to_string())
+            .unwrap_or_else(|_| String::from("/")),
+        None => String::from("/"),
     };
 
     if state != csrf_token {
         tracing::warn!("CSRF token mismatch! This is a possible attack!");
-        return Err(warp::reject::custom(CsrfMismatch {}));
+        return Ok((redirect("auth/login")?, session));
     }
 
     let token = match idp.token_oidc(code, verifier, nonce).await {
@@ -249,12 +270,11 @@ async fn auth_handler(
 
     session.session.insert("token", token).ok();
 
-    let original_path = String::from("/");
     let redirect = format!(
         "<html><head><meta http-equiv=\"refresh\" content=\"0; URL='{}'\"/></head></html>",
-        original_path
+        redirect_uri
     );
-    Ok((warp::reply::html(redirect), session))
+    Ok((warp::reply::html(redirect).into_response(), session))
 }
 
 fn parse_auth_cookie(cookie_str: &str) -> Result<OidcToken, Rejection> {
@@ -502,6 +522,8 @@ pub fn routes(
 ) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     let login = warp::get()
         .and(warp::path("login"))
+        .and(warp::path::end())
+        .and(warp::query::<RedirectQuery>())
         .and(warp_sessions::request::with_session(
             session.clone(),
             Some(COOKIE_OPTS.clone()),
@@ -511,7 +533,8 @@ pub fn routes(
         .untuple_one()
         .and_then(warp_sessions::reply::with_session);
 
-    let auth = warp::get()
+    let auth = warp::path::end()
+        .and(warp::get())
         .and(warp::query::<AuthQuery>())
         .and(warp_sessions::request::with_session(
             session.clone(),
@@ -524,6 +547,7 @@ pub fn routes(
 
     let logout = warp::get()
         .and(warp::path("logout"))
+        .and(warp::path::end())
         .and(with_idp(idp.clone()))
         .and(warp_sessions::request::with_session(
             session.clone(),
@@ -542,8 +566,11 @@ pub fn no_auth_routes(
 ) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     let login = warp::get()
         .and(warp::path("login"))
+        .and(warp::path::end())
         .and_then(no_auth_login_handler);
-    let auth = warp::post()
+
+    let auth = warp::path::end()
+        .and(warp::post())
         .and(warp_sessions::request::with_session(
             session.clone(),
             Some(COOKIE_OPTS.clone()),
