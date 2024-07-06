@@ -2456,6 +2456,7 @@ dependencies = [
  "diesel_migrations",
  "email_address",
  "function_name",
+ "hyper",
  "lazy_static",
  "openidconnect",
  "rand",
