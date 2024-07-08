@@ -127,21 +127,28 @@ impl DatabaseConfig {
     }
 }
 
+#[derive(Deserialize, Clone)]
+pub struct EmailConfig {
+    pub templates_dir: PathBuf,
+}
+
 #[derive(Deserialize)]
 pub struct BaseConfig {
-    pub frontend: Option<PathBuf>,
-    pub tls: Option<TlsConfig>,
-    pub prism: PrismConfig,
-    pub oidc: Option<OidcConfig>,
     pub database: DatabaseConfig,
+    pub email: Option<EmailConfig>,
+    pub frontend: Option<PathBuf>,
+    pub oidc: Option<OidcConfig>,
+    pub prism: PrismConfig,
+    pub tls: Option<TlsConfig>,
 }
 
 pub struct InnerConfig {
-    pub frontend: Option<PathBuf>,
-    pub tls: Option<TlsConfig>,
-    pub prism: PrismConfig,
-    pub oidc: Option<OidcConfig>,
     pub database: DatabaseConfig,
+    pub email: Option<EmailConfig>,
+    pub frontend: Option<PathBuf>,
+    pub oidc: Option<OidcConfig>,
+    pub prism: PrismConfig,
+    pub tls: Option<TlsConfig>,
 }
 
 impl TryFrom<BaseConfig> for InnerConfig {
@@ -149,17 +156,18 @@ impl TryFrom<BaseConfig> for InnerConfig {
 
     fn try_from(conf: BaseConfig) -> Result<Self, Self::Error> {
         Ok(Self {
+            database: conf.database.fill_from_env()?,
+            email: conf.email,
             frontend: conf.frontend,
-            tls: match conf.tls {
-                Some(tls) => Some(tls.fill_from_env()?),
-                None => None,
-            },
-            prism: conf.prism.fill_from_env()?,
             oidc: match conf.oidc {
                 Some(oidc) => Some(oidc.fill_from_env()?),
                 None => None,
             },
-            database: conf.database.fill_from_env()?,
+            prism: conf.prism.fill_from_env()?,
+            tls: match conf.tls {
+                Some(tls) => Some(tls.fill_from_env()?),
+                None => None,
+            },
         })
     }
 }

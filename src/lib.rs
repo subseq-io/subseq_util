@@ -1,4 +1,9 @@
 pub mod api;
+#[cfg(feature = "diesel-async")]
+pub mod async_api;
+#[cfg(feature = "diesel-async")]
+pub mod async_tables;
+pub mod email;
 pub mod oidc;
 pub mod rate_limit;
 pub mod router;

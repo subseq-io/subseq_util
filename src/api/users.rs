@@ -23,21 +23,16 @@ pub async fn create_user_handler<U: UserTable>(
     db_pool: Arc<DbPool>,
     sender: broadcast::Sender<U>,
 ) -> Result<(impl warp::Reply, SessionWithStore<MemoryStore>), warp::Rejection> {
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(err) => return Err(warp::reject::custom(DatabaseError::new(err.to_string()))),
-    };
+    let mut conn = db_pool.get().map_err(RejectReason::pool_error)?;
     let UserPayload { email } = payload;
-    let user = match U::create(
+    let user = U::create(
         &mut conn,
         Uuid::new_v4(),
         &email,
         &email,
         UserAccountType::Unverified,
-    ) {
-        Ok(user) => user,
-        Err(_) => return Err(warp::reject::custom(ConflictError {})),
-    };
+    )
+    .map_err(|_| RejectReason::conflict("users"))?;
     sender.send(user.clone()).ok();
     Ok((warp::reply::json(&user), session))
 }
@@ -48,14 +43,8 @@ pub async fn get_user_handler<U: UserTable>(
     session: SessionWithStore<MemoryStore>,
     db_pool: Arc<DbPool>,
 ) -> Result<(impl warp::Reply, SessionWithStore<MemoryStore>), warp::Rejection> {
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(err) => return Err(warp::reject::custom(DatabaseError::new(err.to_string()))),
-    };
-    let user = match U::get(&mut conn, user_id) {
-        Some(user) => user,
-        None => return Err(warp::reject::custom(NotFoundError {})),
-    };
+    let mut conn = db_pool.get().map_err(RejectReason::pool_error)?;
+    let user = U::get(&mut conn, user_id).ok_or_else(|| RejectReason::not_found(user_id))?;
     Ok((warp::reply::json(&user), session))
 }
 
