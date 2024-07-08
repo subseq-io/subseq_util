@@ -6,11 +6,17 @@ use uuid::Uuid;
 
 use crate::tables::UserAccountType;
 
-pub trait AsyncUserTable: Sized + Clone {
-    fn from_username(conn: &mut AsyncPgConnection, username: &str)
-        -> impl std::future::Future<Output = Option<Self>> + Send;
-    fn from_email(conn: &mut AsyncPgConnection, email: &str)
-        -> impl std::future::Future<Output = Option<Self>> + Send;
+pub trait AsyncUserTable: Sized + Clone + Send {
+    fn id(&self) -> Uuid;
+    fn email(&self) -> String;
+    fn from_username(
+        conn: &mut AsyncPgConnection,
+        username: &str,
+    ) -> impl std::future::Future<Output = Option<Self>> + Send;
+    fn from_email(
+        conn: &mut AsyncPgConnection,
+        email: &str,
+    ) -> impl std::future::Future<Output = Option<Self>> + Send;
     fn create(
         conn: &mut AsyncPgConnection,
         user_id: Uuid,
@@ -18,12 +24,28 @@ pub trait AsyncUserTable: Sized + Clone {
         username: &str,
         account_type: UserAccountType,
     ) -> impl std::future::Future<Output = QueryResult<Self>> + Send;
-    fn get(conn: &mut AsyncPgConnection, id: Uuid)
-        -> impl std::future::Future<Output = Option<Self>> + Send;
-    fn list(conn: &mut AsyncPgConnection, page: u32, page_size: u32)
-        -> impl std::future::Future<Output = Vec<Self>> + Send;
+    fn get(
+        conn: &mut AsyncPgConnection,
+        id: Uuid,
+    ) -> impl std::future::Future<Output = Option<Self>> + Send;
+    fn list(
+        conn: &mut AsyncPgConnection,
+        page: u32,
+        page_size: u32,
+    ) -> impl std::future::Future<Output = Vec<Self>> + Send;
 }
 
+pub trait AsyncUserIdTable: Sized + Send {
+    fn get(
+        conn: &mut AsyncPgConnection,
+        user_id: Uuid,
+    ) -> impl std::future::Future<Output = QueryResult<Self>> + Send;
+    fn set_account_type(
+        &mut self,
+        conn: &mut AsyncPgConnection,
+        role: UserAccountType,
+    ) -> impl std::future::Future<Output = QueryResult<()>> + Send;
+}
 
 #[allow(clippy::crate_in_macro_def)]
 #[macro_export]
@@ -69,15 +91,23 @@ macro_rules! create_async_user_base {
                     .await?;
                 Ok(id)
             }
+        }
 
-            pub async fn get(conn: &mut AsyncPgConnection, user_id: Uuid) -> Option<Self> {
+        impl AsyncUserIdTable for UserIdAccount {
+            fn id(&self) -> Uuid {
+                self.id
+            }
+
+            fn email(&self) -> String {
+                self.email.clone()
+            }
+
+            pub async fn get(conn: &mut AsyncPgConnection, user_id: Uuid) -> QueryResult<Self> {
                 use crate::schema::auth::user_id_accounts::dsl::user_id_accounts;
                 user_id_accounts
                     .find(user_id)
                     .get_result::<UserIdAccount>(conn)
                     .await
-                    .optional()
-                    .ok()?
             }
 
             pub async fn set_account_type(
@@ -233,7 +263,10 @@ mod test {
         let harness = DbHarness::new("localhost", "development", &db_name, None);
         let mut conn = harness.async_conn().await;
 
-        for table_name in async_list_tables(&mut conn).await.expect("Tables not retrieved") {
+        for table_name in async_list_tables(&mut conn)
+            .await
+            .expect("Tables not retrieved")
+        {
             eprintln!("Table: {:?}", table_name);
         }
 
@@ -247,9 +280,7 @@ mod test {
         .await
         .expect("user");
 
-        let user_expect = User::get(&mut conn, user.id)
-            .await
-            .expect("user2");
+        let user_expect = User::get(&mut conn, user.id).await.expect("user2");
         assert_eq!(user, user_expect);
     }
 }

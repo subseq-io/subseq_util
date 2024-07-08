@@ -11,7 +11,6 @@ use warp_sessions::MemoryStore;
 
 pub mod email;
 pub mod sessions;
-pub mod users;
 
 use self::sessions::AuthRejectReason;
 pub use self::sessions::{authenticate, AuthenticatedUser};
@@ -54,6 +53,16 @@ impl RejectReason {
     pub fn conflict<S: Into<String>>(resource: S) -> Rejection {
         RejectReason::Conflict {
             resource: resource.into(),
+        }
+        .into_rejection()
+    }
+
+    #[cfg(feature = "diesel-async")]
+    pub fn async_error(
+        err: bb8::RunError<diesel_async::pooled_connection::PoolError>,
+    ) -> Rejection {
+        RejectReason::DatabaseError {
+            msg: format!("pool {}", err),
         }
         .into_rejection()
     }

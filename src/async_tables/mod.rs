@@ -1,8 +1,14 @@
 pub mod email;
 pub mod users;
 
+use diesel_async::pooled_connection::bb8::Pool;
+use diesel_async::AsyncPgConnection;
+
+pub use crate::async_tables::email::AsyncUnverifiedEmailTable;
+pub use crate::async_tables::users::{AsyncUserIdTable, AsyncUserTable};
 pub use crate::tables::{gen_rand_string, EmailVerification};
-pub use email::AsyncUnverifiedEmailTable;
+
+pub type DbPool = Pool<AsyncPgConnection>;
 
 pub mod harness {
     use crate::tables::harness::DbHarness;

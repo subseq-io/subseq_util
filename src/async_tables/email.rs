@@ -5,10 +5,11 @@ use email_address::EmailAddress;
 
 use crate::tables::EmailVerification;
 
-pub trait AsyncUnverifiedEmailTable: Sized + Clone {
+pub trait AsyncUnverifiedEmailTable: Sized + Clone + Send {
     fn create(
         conn: &mut AsyncPgConnection,
         email: &EmailAddress,
+        base_url: &str,
     ) -> impl std::future::Future<Output = QueryResult<String>> + Send;
     fn get_pending_verification(
         conn: &mut AsyncPgConnection,
@@ -27,7 +28,7 @@ pub trait AsyncUnverifiedEmailTable: Sized + Clone {
 #[allow(clippy::crate_in_macro_def)]
 #[macro_export]
 macro_rules! create_async_email_table {
-    ($minutes:literal) => {
+    ($minutes:literal, $link_uri_fmt:tt) => {
         use diesel_async::{AsyncPgConnection, RunQueryDsl};
         const MINUTES_VERIFICATION_VALID: chrono::Duration = chrono::Duration::minutes($minutes);
 
@@ -44,6 +45,7 @@ macro_rules! create_async_email_table {
             async fn create(
                 conn: &mut AsyncPgConnection,
                 email: &EmailAddress,
+                base_url: &str,
             ) -> QueryResult<String> {
                 use crate::schema::auth::pending_email_verifications::dsl as pending;
 
@@ -58,7 +60,7 @@ macro_rules! create_async_email_table {
                     .values(&row)
                     .execute(conn)
                     .await?;
-                Ok(row.id)
+                Ok(format!($link_uri_fmt, base_url, row.id))
             }
 
             async fn get_pending_verification(
@@ -115,7 +117,7 @@ mod test {
     use function_name::named;
     use std::str::FromStr;
 
-    create_async_email_table!(1);
+    create_async_email_table!(1, "{}app/verify_email?token={}");
 
     #[tokio::test]
     #[named]
@@ -135,6 +137,7 @@ mod test {
         let verifier = PendingEmailVerification::create(&mut conn, &email)
             .await
             .expect("created pending");
+        assert!(verifier.starts_with("https://localhost/app/verify_email?token="));
 
         let fetched = PendingEmailVerification::get_pending_verification(&mut conn, &verifier)
             .await
