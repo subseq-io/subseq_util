@@ -3,6 +3,18 @@ use std::collections::VecDeque;
 use tokio::sync::mpsc;
 use tokio::time::{sleep_until, Duration, Instant};
 
+#[derive(Debug, Clone, Copy)]
+pub struct RateLimit {
+    pub rate_per_window: usize,
+    pub window: Duration,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct RateLimitProfile {
+    pub max_rate: RateLimit,
+    pub burst_rate: Option<RateLimit>,
+}
+
 struct QueuedItem<T> {
     /// The item to store in the rate_channel
     value: T,
@@ -41,14 +53,61 @@ pub struct RateLimitedReceiver<T> {
     rx: mpsc::Receiver<QueuedItem<T>>,
     max_size: usize,
     slots: VecDeque<UsedQueueSlot>,
+    burst_rate: Option<RateLimit>,
+
+    burst_marker: Option<Instant>,
+    burst_count: usize,
 }
 
 impl<T> RateLimitedReceiver<T>
 where
     T: Sync + Send,
 {
+    fn reset_burst(&mut self, now: Instant) -> Instant {
+        self.burst_marker = Some(now);
+        self.burst_count = 1;
+        now
+    }
+
+    async fn is_bursting(
+        &mut self,
+        now: Instant,
+        burst_start: Instant,
+        burst_rate: RateLimit,
+    ) -> Instant {
+        self.burst_count += 1;
+        if self.burst_count >= burst_rate.rate_per_window {
+            let later = burst_start
+                .checked_add(burst_rate.window)
+                .expect("window is sane");
+            sleep_until(later).await;
+
+            let now = Instant::now();
+            self.reset_burst(now)
+        } else {
+            now
+        }
+    }
+
+    async fn manage_burst_rate(&mut self, now: Instant) -> Instant {
+        if let Some(burst_rate) = self.burst_rate {
+            match self.burst_marker {
+                Some(marker) => {
+                    if now.duration_since(marker) >= burst_rate.window {
+                        self.reset_burst(now)
+                    } else {
+                        self.is_bursting(now, marker, burst_rate).await
+                    }
+                }
+                None => self.reset_burst(now),
+            }
+        } else {
+            now
+        }
+    }
+
     pub async fn recv(&mut self) -> Option<T> {
-        let now = Instant::now();
+        let now = self.manage_burst_rate(Instant::now()).await;
 
         let mut sleep_time = None;
         while let Some(front) = self.slots.front() {
@@ -78,18 +137,24 @@ where
 /// Due to differing implementations on your provider side you should probably set this to
 /// something like RATE = SPEC_MAX_RATE - 1 to be safe.
 pub fn rate_limited_channel<T: Send + Sync>(
-    rate_per_duration: usize,
-    duration: Duration,
+    profile: RateLimitProfile,
 ) -> (RateLimitedSender<T>, RateLimitedReceiver<T>) {
-    let (tx, rx) = mpsc::channel(rate_per_duration);
+    let RateLimitProfile {
+        max_rate,
+        burst_rate,
+    } = profile;
+    let (tx, rx) = mpsc::channel(max_rate.rate_per_window);
     let limited_tx = RateLimitedSender {
         tx,
-        duration_per_item: duration,
+        duration_per_item: max_rate.window,
     };
     let limited_rx = RateLimitedReceiver {
         rx,
-        max_size: rate_per_duration,
-        slots: VecDeque::with_capacity(rate_per_duration),
+        max_size: max_rate.rate_per_window,
+        slots: VecDeque::with_capacity(max_rate.rate_per_window),
+        burst_rate,
+        burst_marker: None,
+        burst_count: 0,
     };
     (limited_tx, limited_rx)
 }
@@ -101,7 +166,14 @@ mod test {
 
     #[tokio::test]
     async fn test_rate_limited_channel_happy_path() {
-        let (tx, mut rx) = rate_limited_channel::<String>(10, Duration::from_secs(1));
+        let profile = RateLimitProfile {
+            max_rate: RateLimit {
+                rate_per_window: 10,
+                window: Duration::from_secs(1),
+            },
+            burst_rate: None,
+        };
+        let (tx, mut rx) = rate_limited_channel::<String>(profile);
         let start = Instant::now();
         let msg = "hello".to_string();
         tx.send(msg.clone()).await.expect("send");
@@ -114,8 +186,46 @@ mod test {
     }
 
     #[tokio::test]
+    async fn test_rate_limited_channel_bursting() {
+        let profile = RateLimitProfile {
+            max_rate: RateLimit {
+                rate_per_window: 10,
+                window: Duration::from_secs(10),
+            },
+            burst_rate: Some(RateLimit {
+                rate_per_window: 1,
+                window: Duration::from_secs(1),
+            }),
+        };
+        let (tx, mut rx) = rate_limited_channel::<String>(profile);
+        let msgs: Vec<_> = (0..2).into_iter().map(|v| format!("hello{}", v)).collect();
+        let start = Instant::now();
+        // It should take over 1 second for all these messages to be sent
+        tokio::spawn(async move {
+            for msg in msgs {
+                tx.send(msg).await.expect("send");
+            }
+        });
+
+        let mut idx = 0;
+        while let Some(msg) = rx.recv().await {
+            assert_eq!(msg, format!("hello{}", idx));
+            idx += 1;
+        }
+        let stop = Instant::now();
+        assert!(stop.duration_since(start) > Duration::from_secs(1));
+    }
+
+    #[tokio::test]
     async fn test_rate_limited_channel_full() {
-        let (tx, mut rx) = rate_limited_channel::<String>(10, Duration::from_secs(1));
+        let profile = RateLimitProfile {
+            max_rate: RateLimit {
+                rate_per_window: 10,
+                window: Duration::from_secs(1),
+            },
+            burst_rate: None,
+        };
+        let (tx, mut rx) = rate_limited_channel::<String>(profile);
         let msgs: Vec<_> = (0..11).into_iter().map(|v| format!("hello{}", v)).collect();
 
         let start = Instant::now();

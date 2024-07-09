@@ -6,9 +6,8 @@ use email_address::EmailAddress;
 use handlebars::{DirectorySourceOptions, Handlebars};
 use serde::Serialize;
 use tokio::sync::broadcast;
-use tokio::time::Duration;
 
-use crate::rate_limit::{rate_limited_channel, RateLimitedReceiver};
+use crate::rate_limit::{rate_limited_channel, RateLimitProfile, RateLimitedReceiver};
 
 /// Intended to be used with an HTML-based template.
 /// I use Maizzle for this.
@@ -97,12 +96,13 @@ pub fn schedule_emails<T, F, Fut>(
     templates_dir: PathBuf,
     mut schedule_rx: broadcast::Receiver<ScheduledEmail<T>>,
     send_email: F,
+    profile: RateLimitProfile,
 ) where
     T: EmailTemplate,
     F: FnOnce(RateLimitedReceiver<Email>) -> Fut,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    let (tx, rx) = rate_limited_channel(200, Duration::from_secs(60 * 60));
+    let (tx, rx) = rate_limited_channel(profile);
 
     tokio::spawn(async move {
         let handlebars = setup_handlebars(&templates_dir).expect("Failed to setup handlebars");
