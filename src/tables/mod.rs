@@ -5,7 +5,7 @@ use std::time::Duration;
 pub mod email;
 pub mod users;
 pub use email::{gen_rand_string, EmailVerification, UnverifiedEmailTable};
-pub use users::{UserAccountType, UserTable};
+pub use users::{UserAccountType, UserIdTable, UserTable};
 
 pub type DbPool = Pool<ConnectionManager<PgConnection>>;
 const DB_TIMEOUT: Duration = Duration::from_secs(3);
@@ -126,7 +126,6 @@ pub mod harness {
             #[diesel(sql_type = diesel::sql_types::Text)]
             tablename: String,
         }
-
         sql_query("SELECT tablename FROM pg_tables WHERE schemaname = 'auth'")
             .load::<Table>(connection)
             .map(|tables| tables.into_iter().map(|t| t.tablename).collect())
@@ -154,8 +153,8 @@ pub mod harness {
     }
 
     pub struct DbHarness {
-        db_conf: DatabaseConfig,
-        db_name: String,
+        pub(crate) db_conf: DatabaseConfig,
+        pub(crate) db_name: String,
     }
 
     impl Drop for DbHarness {

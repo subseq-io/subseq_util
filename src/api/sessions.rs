@@ -1,6 +1,7 @@
 use std::string::ToString;
 use std::sync::Arc;
 
+use anyhow::{anyhow, Context, Result as AnyResult};
 use cookie::{Cookie, SameSite};
 use email_address::EmailAddress;
 use lazy_static::lazy_static;
@@ -17,13 +18,16 @@ use warp_sessions::{
 
 use crate::oidc::{IdentityProvider, OidcToken};
 
+use super::{AnyhowError, RejectReason};
+
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct AuthenticatedUser {
     id: Uuid,
+
     username: String,
     email: String,
     email_verified: bool,
-
     given_name: Option<String>,
     family_name: Option<String>,
 }
@@ -32,30 +36,26 @@ impl AuthenticatedUser {
     pub async fn validate_session(
         idp: Arc<IdentityProvider>,
         token: OidcToken,
-    ) -> Result<(Self, Option<OidcToken>), String> {
+    ) -> AnyResult<(Self, Option<OidcToken>)> {
         let (claims, token) = match idp.validate_token(&token) {
             Ok(claims) => (claims, None),
             Err(_) => {
                 // Try to refresh
                 tracing::trace!("Refresh happening");
-                let token = idp
-                    .refresh(token)
-                    .await
-                    .map_err(|e| format!("refresh: {}", e))?;
+                let token = idp.refresh(token).await.context("token refresh")?;
                 tracing::trace!("Refresh complete");
                 (
-                    idp.validate_token(&token)
-                        .map_err(|e| format!("validate_token: {}", e))?,
+                    idp.validate_token(&token).context("validate_token")?,
                     Some(token),
                 )
             }
         };
         tracing::trace!("Claims");
         let user_id =
-            Uuid::parse_str(claims.subject().as_str()).map_err(|e| format!("parse uuid: {}", e))?;
+            Uuid::parse_str(claims.subject().as_str()).context("UUID claims.subject()")?;
         let user_name = claims
             .preferred_username()
-            .ok_or_else(|| "No preferred username in claims".to_string())?
+            .ok_or_else(|| anyhow!("No username in claims"))?
             .as_str();
         let user_email = claims
             .email()
@@ -67,7 +67,7 @@ impl AuthenticatedUser {
                     None
                 }
             })
-            .ok_or_else(|| "No email in claims".to_string())?;
+            .ok_or_else(|| anyhow!("No email in claims"))?;
         let email_verified = claims.email_verified().unwrap_or(false);
         let given_name = claims
             .given_name()
@@ -116,38 +116,112 @@ impl AuthenticatedUser {
 }
 
 #[derive(Debug)]
+#[non_exhaustive]
+pub enum AuthRejectReason {
+    OidcError { msg: &'static str },
+    CsrfMismatch,
+    TokenTransferFailed { msg: String },
+    InvalidCredentials,
+    InvalidSessionToken { reason: String },
+    NoSessionToken,
+}
+
+impl warp::reject::Reject for AuthRejectReason {}
+impl AuthRejectReason {
+    fn into_rejection(self) -> Rejection {
+        warp::reject::custom(self)
+    }
+
+    pub fn oidc_error(msg: &'static str) -> Rejection {
+        AuthRejectReason::OidcError { msg }.into_rejection()
+    }
+
+    pub fn csrf_mismatch() -> Rejection {
+        AuthRejectReason::CsrfMismatch.into_rejection()
+    }
+
+    pub fn token_transfer_failed(msg: String) -> Rejection {
+        AuthRejectReason::TokenTransferFailed { msg }.into_rejection()
+    }
+
+    pub fn invalid_credentials() -> Rejection {
+        AuthRejectReason::InvalidCredentials.into_rejection()
+    }
+
+    pub fn invalid_session_token(reason: String) -> Rejection {
+        AuthRejectReason::InvalidSessionToken { reason }.into_rejection()
+    }
+
+    pub fn no_session_token() -> Rejection {
+        AuthRejectReason::NoSessionToken.into_rejection()
+    }
+}
+
+#[derive(Debug)]
+#[deprecated(
+    since = "0.4.0",
+    note = "please use RejectReason instead, will be removed in 0.5.0"
+)]
 pub struct SessionsError;
 impl warp::reject::Reject for SessionsError {}
 
 #[derive(Debug)]
+#[deprecated(
+    since = "0.4.0",
+    note = "please use RejectReason instead, will be removed in 0.5.0"
+)]
 pub struct UrlError;
 impl warp::reject::Reject for UrlError {}
 
 #[derive(Debug)]
+#[deprecated(
+    since = "0.4.0",
+    note = "please use AuthRejectReason instead, will be removed in 0.5.0"
+)]
 pub struct OidcError {
     pub msg: &'static str,
 }
 impl warp::reject::Reject for OidcError {}
 
 #[derive(Debug)]
+#[deprecated(
+    since = "0.4.0",
+    note = "please use AuthRejectReason instead, will be removed in 0.5.0"
+)]
 pub struct CsrfMismatch;
 impl warp::reject::Reject for CsrfMismatch {}
 
 #[derive(Debug)]
+#[deprecated(
+    since = "0.4.0",
+    note = "please use AuthRejectReason instead, will be removed in 0.5.0"
+)]
 pub struct TokenTransferFailed {
     pub msg: String,
 }
 impl warp::reject::Reject for TokenTransferFailed {}
 
 #[derive(Debug)]
+#[deprecated(
+    since = "0.4.0",
+    note = "please use AuthRejectReason instead, will be removed in 0.5.0"
+)]
 pub struct InvalidCredentials;
 impl warp::reject::Reject for InvalidCredentials {}
 
 #[derive(Debug)]
+#[deprecated(
+    since = "0.4.0",
+    note = "please use AuthRejectReason instead, will be removed in 0.5.0"
+)]
 pub struct InvalidSessionToken;
 impl warp::reject::Reject for InvalidSessionToken {}
 
 #[derive(Debug)]
+#[deprecated(
+    since = "0.4.0",
+    note = "please use AuthRejectReason instead, will be removed in 0.5.0"
+)]
 pub struct NoSessionToken {}
 impl warp::reject::Reject for NoSessionToken {}
 
@@ -168,20 +242,20 @@ async fn login_handler(
     session
         .session
         .insert("csrf_token", csrf_token.secret().clone())
-        .map_err(|_| warp::reject::custom(SessionsError {}))?;
+        .map_err(|_| RejectReason::Session)?;
     session
         .session
         .insert("pkce_verifier", verifier.secret().clone())
-        .map_err(|_| warp::reject::custom(SessionsError {}))?;
+        .map_err(|_| RejectReason::Session)?;
     session
         .session
         .insert("nonce", nonce.secret().clone())
-        .map_err(|_| warp::reject::custom(SessionsError {}))?;
+        .map_err(|_| RejectReason::Session)?;
     if let Some(redirect_uri) = query.origin {
         session
             .session
             .insert("redirect_uri", redirect_uri)
-            .map_err(|_| warp::reject::custom(SessionsError {}))?;
+            .map_err(|_| RejectReason::Session)?;
     }
 
     Ok((redirect(auth_url)?, session))
@@ -191,7 +265,9 @@ fn redirect<U: Into<String>>(url: U) -> Result<Response<hyper::Body>, Rejection>
     let uri: warp::http::Uri = url
         .into()
         .try_into()
-        .map_err(|_| warp::reject::custom(UrlError {}))?;
+        .map_err(|err| RejectReason::BadRequest {
+            reason: format!("Invalid URL: {}", err),
+        })?;
     let mut no_cache_headers = HeaderMap::new();
     no_cache_headers.append(
         "Cache-Control",
@@ -261,11 +337,7 @@ async fn auth_handler(
 
     let token = match idp.token_oidc(code, verifier, nonce).await {
         Ok(token) => token,
-        Err(err) => {
-            return Err(warp::reject::custom(TokenTransferFailed {
-                msg: err.to_string(),
-            }))
-        }
+        Err(err) => return Err(AuthRejectReason::token_transfer_failed(err.to_string())),
     };
 
     session.session.insert("token", token).ok();
@@ -278,10 +350,8 @@ async fn auth_handler(
 }
 
 fn parse_auth_cookie(cookie_str: &str) -> Result<OidcToken, Rejection> {
-    serde_json::from_str(cookie_str).map_err(|_| {
-        tracing::error!("Invalid session token: {}", cookie_str);
-        warp::reject::custom(InvalidSessionToken)
-    })
+    serde_json::from_str(cookie_str)
+        .map_err(|err| AuthRejectReason::invalid_session_token(format!("cookie: {}", err)))
 }
 
 pub async fn store_auth_cookie<T: Reply>(
@@ -365,13 +435,7 @@ pub fn authenticate(
                                 let (auth_user, token) =
                                     AuthenticatedUser::validate_session(idp, token)
                                         .await
-                                        .map_err(|err| {
-                                            tracing::error!(
-                                                "Authentication for user failed: {}",
-                                                err
-                                            );
-                                            warp::reject::custom(InvalidSessionToken)
-                                        })?;
+                                        .map_err(AnyhowError::from)?;
                                 if let Some(token) = token {
                                     tracing::trace!("Reset token");
                                     let inner_session = &mut session.session;
@@ -384,12 +448,14 @@ pub fn authenticate(
                                 inner_session
                                     .insert("redirect_path", path.as_str().to_string())
                                     .ok();
-                                Err(warp::reject::custom(NoSessionToken {}))
+                                Err(AuthRejectReason::no_session_token())
                             }
                         }
                     } else if let Some(token) = token {
-                        let NoAuthToken { user_id } = serde_json::from_str(&token)
-                            .map_err(|_| warp::reject::custom(InvalidSessionToken))?;
+                        let NoAuthToken { user_id } =
+                            serde_json::from_str(&token).map_err(|err| {
+                                AuthRejectReason::invalid_session_token(format!("cookie: {}", err))
+                            })?;
                         Ok((
                             AuthenticatedUser {
                                 id: user_id,
@@ -402,7 +468,7 @@ pub fn authenticate(
                             session,
                         ))
                     } else {
-                        Err(warp::reject::custom(NoSessionToken {}))
+                        Err(AuthRejectReason::no_session_token())
                     }
                 }
             },
@@ -446,7 +512,7 @@ async fn no_auth_form_handler(
     form: FormData,
 ) -> Result<(impl Reply, SessionWithStore<MemoryStore>), Rejection> {
     let user_id =
-        Uuid::parse_str(&form.user_id).map_err(|_| warp::reject::custom(InvalidCredentials {}))?;
+        Uuid::parse_str(&form.user_id).map_err(|_| AuthRejectReason::invalid_credentials())?;
     let token = NoAuthToken { user_id };
     session.session.insert("token", token).ok();
 
@@ -487,7 +553,8 @@ async fn logout_handler(
     session: SessionWithStore<MemoryStore>,
     token: String,
 ) -> Result<(impl Reply, SessionWithStore<MemoryStore>), Rejection> {
-    let token = parse_auth_cookie(&token).map_err(|_| warp::reject::custom(InvalidSessionToken))?;
+    let token = parse_auth_cookie(&token)
+        .map_err(|err| AuthRejectReason::invalid_session_token(format!("{:?}", err)))?;
     let logout_url = idp.logout_oidc("/", &token);
     let uri = logout_url.as_str().parse::<warp::http::Uri>().unwrap();
 
