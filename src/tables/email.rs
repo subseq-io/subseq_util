@@ -115,13 +115,27 @@ macro_rules! create_email_table {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use crate::tables::harness::{list_tables, to_pg_db_name, DbHarness};
-    use email_address::EmailAddress;
-    use function_name::named;
     use std::str::FromStr;
 
+    use email_address::EmailAddress;
+    use function_name::named;
+    use url::Url;
+
+    use super::*;
+    use crate::tables::harness::{list_tables, to_pg_db_name, DbHarness};
+
     create_email_table!(1, "{}app/verify_email?token={}");
+
+    fn extract_token_from_uri(uri: &str) -> Option<String> {
+        let url = Url::parse(uri).ok()?;
+        let pairs = url.query_pairs();
+        for (key, value) in pairs {
+            if key == "token" {
+                return Some(value.into_owned());
+            }
+        }
+        None
+    }
 
     #[test]
     #[named]
@@ -138,8 +152,9 @@ mod test {
         let verifier = PendingEmailVerification::create(&mut conn, &email, "https://localhost/")
             .expect("created pending");
         assert!(verifier.starts_with("https://localhost/app/verify_email?token="));
+        let token = extract_token_from_uri(&verifier).expect("token found");
 
-        let fetched = PendingEmailVerification::get_pending_verification(&mut conn, &verifier)
+        let fetched = PendingEmailVerification::get_pending_verification(&mut conn, &token)
             .expect("verifier should be found");
 
         assert!(fetched.is_valid());

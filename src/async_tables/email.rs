@@ -109,13 +109,27 @@ macro_rules! create_async_email_table {
 
 #[cfg(test)]
 mod test {
+    use std::str::FromStr;
+
+    use email_address::EmailAddress;
+    use function_name::named;
+    use url::Url;
+
     use super::*;
     use crate::async_tables::harness::async_list_tables;
     use crate::tables::harness::{to_pg_db_name, DbHarness};
     use crate::tables::{gen_rand_string, EmailVerification};
-    use email_address::EmailAddress;
-    use function_name::named;
-    use std::str::FromStr;
+
+    fn extract_token_from_uri(uri: &str) -> Option<String> {
+        let url = Url::parse(uri).ok()?;
+        let pairs = url.query_pairs();
+        for (key, value) in pairs {
+            if key == "token" {
+                return Some(value.into_owned());
+            }
+        }
+        None
+    }
 
     create_async_email_table!(1, "{}app/verify_email?token={}");
 
@@ -134,12 +148,13 @@ mod test {
         }
 
         let email = EmailAddress::from_str("test@example.com").expect("valid email");
-        let verifier = PendingEmailVerification::create(&mut conn, &email)
+        let verifier = PendingEmailVerification::create(&mut conn, &email, "https://localhost/")
             .await
             .expect("created pending");
         assert!(verifier.starts_with("https://localhost/app/verify_email?token="));
 
-        let fetched = PendingEmailVerification::get_pending_verification(&mut conn, &verifier)
+        let token = extract_token_from_uri(&verifier).expect("token found");
+        let fetched = PendingEmailVerification::get_pending_verification(&mut conn, &token)
             .await
             .expect("verifier should be found");
 

@@ -51,6 +51,9 @@ pub trait AsyncUserIdTable: Sized + Send {
 #[macro_export]
 macro_rules! create_async_user_base {
     () => {
+        use diesel_async::scoped_futures::ScopedFutureExt;
+        use diesel_async::{AsyncConnection, RunQueryDsl};
+
         #[derive(PartialEq, Queryable, Insertable, Clone, Debug, Serialize)]
         #[diesel(table_name = crate::schema::auth::metadata)]
         pub struct UserMetadata {
@@ -94,15 +97,7 @@ macro_rules! create_async_user_base {
         }
 
         impl AsyncUserIdTable for UserIdAccount {
-            fn id(&self) -> Uuid {
-                self.id
-            }
-
-            fn email(&self) -> String {
-                self.email.clone()
-            }
-
-            pub async fn get(conn: &mut AsyncPgConnection, user_id: Uuid) -> QueryResult<Self> {
+            async fn get(conn: &mut AsyncPgConnection, user_id: Uuid) -> QueryResult<Self> {
                 use crate::schema::auth::user_id_accounts::dsl::user_id_accounts;
                 user_id_accounts
                     .find(user_id)
@@ -110,7 +105,7 @@ macro_rules! create_async_user_base {
                     .await
             }
 
-            pub async fn set_account_type(
+            async fn set_account_type(
                 &mut self,
                 conn: &mut AsyncPgConnection,
                 account_type: UserAccountType,
@@ -144,7 +139,15 @@ macro_rules! create_async_user_base {
             }
         }
 
-        impl UserTable for User {
+        impl AsyncUserTable for User {
+            fn id(&self) -> Uuid {
+                self.id
+            }
+
+            fn email(&self) -> String {
+                self.email.clone()
+            }
+
             async fn from_username(conn: &mut AsyncPgConnection, username: &str) -> Option<Self> {
                 use crate::schema::auth::user_id_accounts;
                 use crate::schema::auth::users;
@@ -192,23 +195,28 @@ macro_rules! create_async_user_base {
                     created: chrono::Utc::now().naive_utc(),
                 };
 
-                conn.transaction(async |transact| {
-                    diesel::insert_into(crate::schema::auth::users::table)
-                        .values(&user)
-                        .execute(transact)
-                        .await?;
+                let transaction_user = user.clone();
+                conn.transaction(|transact| {
+                    async move {
+                        diesel::insert_into(crate::schema::auth::users::table)
+                            .values(&transaction_user)
+                            .execute(transact)
+                            .await?;
 
-                    let user_id_account = UserIdAccount {
-                        user_id: user.id,
-                        username: username.trim().to_ascii_lowercase(),
-                        account_type: Some(account_type.to_string()),
-                    };
-                    diesel::insert_into(crate::schema::auth::user_id_accounts::table)
-                        .values(&user_id_account)
-                        .execute(transact)
-                        .await?;
-                    QueryResult::Ok(())
-                })?;
+                        let user_id_account = UserIdAccount {
+                            user_id: transaction_user.id,
+                            username: username.trim().to_ascii_lowercase(),
+                            account_type: Some(account_type.to_string()),
+                        };
+                        diesel::insert_into(crate::schema::auth::user_id_accounts::table)
+                            .values(&user_id_account)
+                            .execute(transact)
+                            .await?;
+                        QueryResult::Ok(())
+                    }
+                    .scope_boxed()
+                })
+                .await?;
 
                 Ok(user)
             }
@@ -258,7 +266,7 @@ mod test {
 
     #[tokio::test]
     #[named]
-    fn test_async_user_handle() {
+    async fn test_async_user_handle() {
         let db_name = to_pg_db_name(function_name!());
         let harness = DbHarness::new("localhost", "development", &db_name, None);
         let mut conn = harness.async_conn().await;
