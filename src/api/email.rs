@@ -1,4 +1,3 @@
-use std::convert::Infallible;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -19,7 +18,7 @@ use crate::tables::{EmailVerification, UserAccountType, UserIdTable};
 use super::sessions::store_auth_cookie;
 use super::{authenticate, with_broadcast, with_db, with_string, AnyhowError, RejectReason};
 
-fn send_verification_email<E, B, T>(
+fn send_verification_email<E, B, T, U>(
     conn: &mut PgConnection,
     base_url: &str,
     to_address: EmailAddress,
@@ -28,8 +27,9 @@ fn send_verification_email<E, B, T>(
 ) -> Result<(), Rejection>
 where
     E: UnverifiedEmailTable,
-    B: EmailTemplateBuilder<T>,
+    B: EmailTemplateBuilder<T, U>,
     T: EmailTemplate,
+    U: UserTable,
 {
     let email_link =
         E::create(conn, &to_address, base_url).map_err(RejectReason::database_error)?;
@@ -113,37 +113,28 @@ async fn resend_email_handler<
     U: UserTable,
     E: UnverifiedEmailTable,
     T: EmailTemplate,
-    B: EmailTemplateBuilder<T>,
+    B: EmailTemplateBuilder<T, U>,
 >(
     auth: AuthenticatedUser,
     session: SessionWithStore<MemoryStore>,
     db_pool: Arc<DbPool>,
-    builder: B,
     email_tx: broadcast::Sender<ScheduledEmail<T>>,
     base_url: String,
 ) -> Result<(impl Reply, SessionWithStore<MemoryStore>), Rejection> {
     let mut conn = db_pool.get().map_err(RejectReason::pool_error)?;
     let user = U::get(&mut conn, auth.id())
         .ok_or_else(|| RejectReason::not_found(format!("UserTable {}", auth.id())))?;
+    let builder = B::new(&mut conn, &user)?;
     let email = EmailAddress::from_str(&user.email())
         .map_err(|_| RejectReason::bad_request(format!("Invalid user email: {}", user.email())))?;
-    send_verification_email::<E, B, T>(&mut conn, &base_url, email, builder, email_tx)?;
+    send_verification_email::<E, B, T, U>(&mut conn, &base_url, email, builder, email_tx)?;
     Ok((warp::reply::json(&json!({"message": "resent"})), session))
-}
-
-pub fn with_template_builder<
-    T: EmailTemplate,
-    B: EmailTemplateBuilder<T> + Send + Sync + Clone + 'static,
->(
-    builder: B,
-) -> impl Filter<Extract = (B,), Error = Infallible> + Clone {
-    warp::any().map(move || builder.clone())
 }
 
 pub fn routes<
     U: UserTable,
     T: EmailTemplate + Send + Sync,
-    B: EmailTemplateBuilder<T> + Clone + Sync + Send + 'static,
+    B: EmailTemplateBuilder<T, U> + Clone + Sync + Send + 'static,
     E: UnverifiedEmailTable,
     EIT: UserIdTable,
 >(
@@ -152,7 +143,6 @@ pub fn routes<
     pool: Arc<DbPool>,
     base_url: String,
     email_tx: broadcast::Sender<ScheduledEmail<T>>,
-    builder: B,
 ) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     let verify_email = warp::path!("email" / "verify")
         .and(warp::post())
@@ -167,7 +157,6 @@ pub fn routes<
         .and(warp::put())
         .and(authenticate(idp.clone(), session.clone()))
         .and(with_db(pool.clone()))
-        .and(with_template_builder(builder))
         .and(with_broadcast(email_tx.clone()))
         .and(with_string(base_url.clone()))
         .and_then(resend_email_handler::<U, E, T, B>)

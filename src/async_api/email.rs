@@ -14,11 +14,11 @@ use super::with_db;
 use crate::api::sessions::{store_auth_cookie, AuthenticatedUser};
 use crate::api::{authenticate, with_broadcast, with_string, AnyhowError, RejectReason};
 use crate::async_tables::{AsyncUnverifiedEmailTable, AsyncUserIdTable, AsyncUserTable, DbPool};
-use crate::email::{EmailTemplate, EmailTemplateBuilder, ScheduledEmail};
+use crate::email::{AsyncEmailTemplateBuilder, EmailTemplate, ScheduledEmail};
 use crate::oidc::IdentityProvider;
 use crate::tables::{EmailVerification, UserAccountType};
 
-async fn send_verification_email<E, B, T>(
+async fn send_verification_email<E, B, T, U>(
     conn: &mut AsyncPgConnection,
     base_url: &str,
     to_address: EmailAddress,
@@ -27,8 +27,9 @@ async fn send_verification_email<E, B, T>(
 ) -> Result<(), Rejection>
 where
     E: AsyncUnverifiedEmailTable,
-    B: EmailTemplateBuilder<T>,
+    B: AsyncEmailTemplateBuilder<T, U>,
     T: EmailTemplate,
+    U: AsyncUserTable,
 {
     let email_link = E::create(conn, &to_address, base_url)
         .await
@@ -51,8 +52,8 @@ struct VerifyQuery {
 }
 
 async fn verify_email_handler<
-    U: AsyncUserTable,
     E: AsyncUnverifiedEmailTable,
+    U: AsyncUserTable,
     UIT: AsyncUserIdTable,
 >(
     query: VerifyQuery,
@@ -120,15 +121,14 @@ async fn verify_email_handler<
 }
 
 async fn resend_email_handler<
-    U: AsyncUserTable,
     E: AsyncUnverifiedEmailTable,
+    B: AsyncEmailTemplateBuilder<T, U>,
     T: EmailTemplate,
-    B: EmailTemplateBuilder<T>,
+    U: AsyncUserTable,
 >(
     auth: AuthenticatedUser,
     session: SessionWithStore<MemoryStore>,
     db_pool: Arc<DbPool>,
-    builder: B,
     email_tx: broadcast::Sender<ScheduledEmail<T>>,
     base_url: String,
 ) -> Result<(impl Reply, SessionWithStore<MemoryStore>), Rejection> {
@@ -136,26 +136,18 @@ async fn resend_email_handler<
     let user = U::get(&mut conn, auth.id())
         .await
         .ok_or_else(|| RejectReason::not_found(format!("UserTable {}", auth.id())))?;
+    let builder = B::new(&mut conn, &user).await?;
     let email = EmailAddress::from_str(&user.email())
         .map_err(|_| RejectReason::bad_request(format!("Invalid user email: {}", user.email())))?;
-    send_verification_email::<E, B, T>(&mut conn, &base_url, email, builder, email_tx).await?;
+    send_verification_email::<E, B, T, U>(&mut conn, &base_url, email, builder, email_tx).await?;
     Ok((warp::reply::json(&json!({"message": "resent"})), session))
 }
 
-pub fn with_template_builder<
-    T: EmailTemplate,
-    B: EmailTemplateBuilder<T> + Send + Sync + Clone + 'static,
->(
-    builder: B,
-) -> impl Filter<Extract = (B,), Error = Infallible> + Clone {
-    warp::any().map(move || builder.clone())
-}
-
 pub fn routes<
-    U: AsyncUserTable,
-    T: EmailTemplate + Send + Sync,
-    B: EmailTemplateBuilder<T> + Clone + Sync + Send + 'static,
     E: AsyncUnverifiedEmailTable,
+    B: AsyncEmailTemplateBuilder<T, U> + Clone + Sync + Send + 'static,
+    T: EmailTemplate + Send + Sync,
+    U: AsyncUserTable,
     EIT: AsyncUserIdTable,
 >(
     idp: Option<Arc<IdentityProvider>>,
@@ -170,7 +162,7 @@ pub fn routes<
         .and(warp::query::<VerifyQuery>())
         .and(authenticate(idp.clone(), session.clone()))
         .and(with_db(pool.clone()))
-        .and_then(verify_email_handler::<U, E, EIT>)
+        .and_then(verify_email_handler::<E, U, EIT>)
         .untuple_one()
         .and_then(store_auth_cookie);
 
@@ -178,10 +170,9 @@ pub fn routes<
         .and(warp::put())
         .and(authenticate(idp.clone(), session.clone()))
         .and(with_db(pool.clone()))
-        .and(with_template_builder(builder))
         .and(with_broadcast(email_tx.clone()))
         .and(with_string(base_url.clone()))
-        .and_then(resend_email_handler::<U, E, T, B>)
+        .and_then(resend_email_handler::<E, B, T, U>)
         .untuple_one()
         .and_then(store_auth_cookie);
 
