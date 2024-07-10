@@ -65,7 +65,7 @@ where
     Template: EmailTemplate,
     User: UserTable,
 {
-    fn new(conn: &PgConnection, user: &User) -> Result<Self, Rejection>;
+    fn new(conn: &mut PgConnection, user: &User) -> Result<Self, Rejection>;
     /// Include in the template a unique link back to the server.
     fn unique_link(self, link: &str) -> Self;
     fn subject(self, subject: &str) -> Self;
@@ -79,7 +79,7 @@ where
     User: AsyncUserTable,
 {
     fn new(
-        conn: &AsyncPgConnection,
+        conn: &mut AsyncPgConnection,
         user: &User,
     ) -> impl std::future::Future<Output = Result<Self, Rejection>> + Send;
     fn unique_link(self, link: &str) -> Self;
