@@ -2,12 +2,21 @@ use std::future::Future;
 use std::path::PathBuf;
 
 use anyhow::Result;
+use diesel::PgConnection;
+#[cfg(feature = "diesel-async")]
+use diesel_async::AsyncPgConnection;
 use email_address::EmailAddress;
 use handlebars::{DirectorySourceOptions, Handlebars};
 use serde::Serialize;
 use tokio::sync::broadcast;
+use warp::reject::Rejection;
 
-use crate::rate_limit::{rate_limited_channel, RateLimitProfile, RateLimitedReceiver};
+#[cfg(feature = "diesel-async")]
+use crate::async_tables::AsyncUserTable;
+use crate::{
+    rate_limit::{rate_limited_channel, RateLimitProfile, RateLimitedReceiver},
+    tables::UserTable,
+};
 
 /// Intended to be used with an HTML-based template.
 /// I use Maizzle for this.
@@ -51,11 +60,28 @@ pub trait EmailTemplate: Clone + std::fmt::Debug + Send {
     fn fill(self, handlebars: &Handlebars) -> FilledTemplate;
 }
 
-pub trait EmailTemplateBuilder<Template>
+pub trait EmailTemplateBuilder<Template, User>: Sized
 where
     Template: EmailTemplate,
+    User: UserTable,
 {
+    fn new(conn: &PgConnection, user: &User) -> Result<Self, Rejection>;
     /// Include in the template a unique link back to the server.
+    fn unique_link(self, link: &str) -> Self;
+    fn subject(self, subject: &str) -> Self;
+    fn build(self) -> anyhow::Result<Template>;
+}
+
+#[cfg(feature = "diesel-async")]
+pub trait AsyncEmailTemplateBuilder<Template, User>: Sized
+where
+    Template: EmailTemplate,
+    User: AsyncUserTable,
+{
+    fn new(
+        conn: &AsyncPgConnection,
+        user: &User,
+    ) -> impl std::future::Future<Output = Result<Self, Rejection>> + Send;
     fn unique_link(self, link: &str) -> Self;
     fn subject(self, subject: &str) -> Self;
     fn build(self) -> anyhow::Result<Template>;
