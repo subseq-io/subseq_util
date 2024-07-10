@@ -134,7 +134,7 @@ async fn resend_email_handler<
 pub fn routes<
     U: UserTable,
     T: EmailTemplate + Send + Sync,
-    B: EmailTemplateBuilder<T, U> + Clone + Sync + Send + 'static,
+    B: EmailTemplateBuilder<T, U> + Sync + Send + 'static,
     E: UnverifiedEmailTable,
     EIT: UserIdTable,
 >(
