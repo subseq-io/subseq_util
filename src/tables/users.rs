@@ -49,7 +49,7 @@ impl UserAccountType {
     }
 }
 
-pub trait AsyncUserTable: Sized + Clone + Send {
+pub trait UserTable: Sized + Clone + Send {
     fn id(&self) -> Uuid;
     fn email(&self) -> String;
     fn from_username(
@@ -78,7 +78,7 @@ pub trait AsyncUserTable: Sized + Clone + Send {
     ) -> impl std::future::Future<Output = Vec<Self>> + Send;
 }
 
-pub trait AsyncUserIdTable: Sized + Send {
+pub trait UserIdTable: Sized + Send {
     fn get(
         conn: &mut AsyncPgConnection,
         user_id: Uuid,
@@ -139,7 +139,7 @@ macro_rules! create_async_user_base {
             }
         }
 
-        impl AsyncUserIdTable for UserIdAccount {
+        impl UserIdTable for UserIdAccount {
             async fn get(conn: &mut AsyncPgConnection, user_id: Uuid) -> QueryResult<Self> {
                 use crate::schema::auth::user_id_accounts::dsl::user_id_accounts;
                 user_id_accounts
@@ -182,7 +182,7 @@ macro_rules! create_async_user_base {
             }
         }
 
-        impl AsyncUserTable for User {
+        impl UserTable for User {
             fn id(&self) -> Uuid {
                 self.id
             }

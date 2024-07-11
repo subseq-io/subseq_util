@@ -16,6 +16,7 @@ use warp_sessions::{
     CookieOptions, MemoryStore, SameSiteCookieOption, SessionWithStore, WithSession,
 };
 
+use super::sessions::AuthRejectReason;
 use crate::oidc::{IdentityProvider, OidcToken};
 
 use super::{AnyhowError, RejectReason};
@@ -115,18 +116,6 @@ impl AuthenticatedUser {
     }
 }
 
-#[derive(Debug)]
-#[non_exhaustive]
-pub enum AuthRejectReason {
-    OidcError { msg: &'static str },
-    CsrfMismatch,
-    TokenTransferFailed { msg: String },
-    InvalidCredentials,
-    InvalidSessionToken { reason: String },
-    NoSessionToken,
-}
-
-impl warp::reject::Reject for AuthRejectReason {}
 impl AuthRejectReason {
     fn into_rejection(self) -> Rejection {
         warp::reject::custom(self)
@@ -156,74 +145,6 @@ impl AuthRejectReason {
         AuthRejectReason::NoSessionToken.into_rejection()
     }
 }
-
-#[derive(Debug)]
-#[deprecated(
-    since = "0.4.0",
-    note = "please use RejectReason instead, will be removed in 0.5.0"
-)]
-pub struct SessionsError;
-impl warp::reject::Reject for SessionsError {}
-
-#[derive(Debug)]
-#[deprecated(
-    since = "0.4.0",
-    note = "please use RejectReason instead, will be removed in 0.5.0"
-)]
-pub struct UrlError;
-impl warp::reject::Reject for UrlError {}
-
-#[derive(Debug)]
-#[deprecated(
-    since = "0.4.0",
-    note = "please use AuthRejectReason instead, will be removed in 0.5.0"
-)]
-pub struct OidcError {
-    pub msg: &'static str,
-}
-impl warp::reject::Reject for OidcError {}
-
-#[derive(Debug)]
-#[deprecated(
-    since = "0.4.0",
-    note = "please use AuthRejectReason instead, will be removed in 0.5.0"
-)]
-pub struct CsrfMismatch;
-impl warp::reject::Reject for CsrfMismatch {}
-
-#[derive(Debug)]
-#[deprecated(
-    since = "0.4.0",
-    note = "please use AuthRejectReason instead, will be removed in 0.5.0"
-)]
-pub struct TokenTransferFailed {
-    pub msg: String,
-}
-impl warp::reject::Reject for TokenTransferFailed {}
-
-#[derive(Debug)]
-#[deprecated(
-    since = "0.4.0",
-    note = "please use AuthRejectReason instead, will be removed in 0.5.0"
-)]
-pub struct InvalidCredentials;
-impl warp::reject::Reject for InvalidCredentials {}
-
-#[derive(Debug)]
-#[deprecated(
-    since = "0.4.0",
-    note = "please use AuthRejectReason instead, will be removed in 0.5.0"
-)]
-pub struct InvalidSessionToken;
-impl warp::reject::Reject for InvalidSessionToken {}
-
-#[derive(Debug)]
-#[deprecated(
-    since = "0.4.0",
-    note = "please use AuthRejectReason instead, will be removed in 0.5.0"
-)]
-pub struct NoSessionToken {}
-impl warp::reject::Reject for NoSessionToken {}
 
 pub const AUTH_COOKIE: &str = "access_token";
 

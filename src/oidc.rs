@@ -1,4 +1,3 @@
-use std::io::Read;
 use std::str::FromStr;
 
 use anyhow::{anyhow, Result as AnyResult};
