@@ -12,7 +12,7 @@ use tokio::sync::broadcast;
 use warp::reject::Rejection;
 
 #[cfg(feature = "diesel-async")]
-use crate::async_tables::AsyncUserTable;
+use crate::tables::AsyncUserTable;
 use crate::{
     rate_limit::{rate_limited_channel, RateLimitProfile, RateLimitedReceiver},
     tables::UserTable,
