@@ -1,3 +1,4 @@
+/// cargo run --example oidc --features warp -- oidc.json
 use std::env;
 use std::fs::File;
 use std::sync::Arc;
