@@ -77,12 +77,17 @@ pub async fn establish_connection_pool(db_url: &str, secure: bool) -> anyhow::Re
 macro_rules! setup_table_crud {
     ($struct_name:ident, $table:path) => {
         impl $struct_name {
-            pub fn list(conn: &mut PgConnection, page: u32, page_size: u32) -> Vec<Self> {
+            pub async fn list(
+                conn: &mut AsyncPgConnection,
+                page: u32,
+                page_size: u32,
+            ) -> Vec<Self> {
                 let offset = page.saturating_sub(1) * page_size;
                 match $table
                     .limit(page_size as i64)
                     .offset(offset as i64)
                     .load::<Self>(conn)
+                    .await
                 {
                     Ok(list) => list,
                     Err(err) => {
@@ -92,8 +97,13 @@ macro_rules! setup_table_crud {
                 }
             }
 
-            pub fn get(conn: &mut PgConnection, id: Uuid) -> Option<Self> {
-                $table.find(id).get_result::<Self>(conn).optional().ok()?
+            pub async fn get(conn: &mut AsyncPgConnection, id: Uuid) -> Option<Self> {
+                $table
+                    .find(id)
+                    .get_result::<Self>(conn)
+                    .await
+                    .optional()
+                    .ok()?
             }
         }
     };
