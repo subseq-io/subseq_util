@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 axum = { version = "0.7.5", features = ["ws", "macros", "multipart", "http2"], optional = true }
+axum-extra = { version = "0.9.3", features = ["cookie", "multipart"], optional = true }
 anyhow = "1.0.79"
 anymap = "0.12.1"
 base64 = "0.13.0"
@@ -37,8 +38,10 @@ warp-sessions = { version = "1.0.19", optional = true }
 futures-util = "0.3.30"
 rustls = "0.23.11"
 rustls-native-certs = "0.7.1"
+time = "0.3.36"
 tokio-postgres-rustls = "0.12.0"
 tokio-postgres = "0.7.10"
+tower-sessions = { version = "0.12.2", optional = true }
 rustls-pemfile = "2.1.2"
 
 [features]
@@ -46,4 +49,4 @@ default = []
 abort-on-connection-error = []
 console = ["console-subscriber"]
 warp = ["dep:warp", "warp-sessions"]
-axum = ["dep:axum"]
+axum = ["dep:axum", "axum-extra", "tower-sessions"]

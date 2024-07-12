@@ -1,9 +1,19 @@
 use uuid::Uuid;
 
+#[cfg(feature = "axum")]
+pub mod axum;
+
 #[cfg(feature = "warp")]
-pub mod warp_sessions;
+pub mod warp;
 
 pub mod sessions {
+    use anyhow::{anyhow, Context, Result as AnyResult};
+    use email_address::EmailAddress;
+    use openidconnect::core::CoreIdTokenClaims;
+    use uuid::Uuid;
+
+    use crate::oidc::OidcToken;
+
     #[derive(Debug)]
     #[non_exhaustive]
     pub enum AuthRejectReason {
@@ -17,33 +27,174 @@ pub mod sessions {
     #[cfg(feature = "warp")]
     impl warp::reject::Reject for AuthRejectReason {}
 
+    #[derive(Clone, Debug)]
+    #[non_exhaustive]
+    pub struct AuthenticatedUser {
+        pub(super) id: Uuid,
+
+        pub(super) username: String,
+        pub(super) email: String,
+        pub(super) email_verified: bool,
+        pub(super) given_name: Option<String>,
+        pub(super) family_name: Option<String>,
+    }
+
+    pub trait ValidatesIdentity {
+        fn validate_token(&self, token: &OidcToken) -> anyhow::Result<CoreIdTokenClaims>;
+        fn refresh_token(
+            &self,
+            token: OidcToken,
+        ) -> impl std::future::Future<Output = anyhow::Result<OidcToken>> + std::marker::Send;
+    }
+
+    impl AuthenticatedUser {
+        pub async fn validate_session<S: ValidatesIdentity>(
+            idp: &S,
+            token: OidcToken,
+        ) -> AnyResult<(Self, Option<OidcToken>)> {
+            let (claims, token) = match idp.validate_token(&token) {
+                Ok(claims) => (claims, None),
+                Err(_) => {
+                    // Try to refresh
+                    tracing::trace!("Refresh happening");
+                    let token = idp.refresh_token(token).await.context("token refresh")?;
+                    tracing::trace!("Refresh complete");
+                    (
+                        idp.validate_token(&token).context("validate_token")?,
+                        Some(token),
+                    )
+                }
+            };
+            tracing::trace!("Claims");
+            let user_id =
+                Uuid::parse_str(claims.subject().as_str()).context("UUID claims.subject()")?;
+            let user_name = claims
+                .preferred_username()
+                .ok_or_else(|| anyhow!("No username in claims"))?
+                .as_str();
+            let user_email = claims
+                .email()
+                .map(|email| email.as_str())
+                .or_else(|| {
+                    if EmailAddress::is_valid(user_name) {
+                        Some(user_name)
+                    } else {
+                        None
+                    }
+                })
+                .ok_or_else(|| anyhow!("No email in claims"))?;
+            let email_verified = claims.email_verified().unwrap_or(false);
+            let given_name = claims
+                .given_name()
+                .and_then(|name| name.get(None).map(|name| name.to_string()));
+            let family_name = claims
+                .family_name()
+                .and_then(|name| name.get(None).map(|name| name.to_string()));
+
+            tracing::trace!("Token validated");
+            Ok((
+                Self {
+                    id: user_id,
+                    username: user_name.to_string(),
+                    email: user_email.to_string(),
+                    email_verified,
+                    given_name,
+                    family_name,
+                },
+                token,
+            ))
+        }
+
+        pub fn id(&self) -> Uuid {
+            self.id
+        }
+
+        pub fn username(&self) -> String {
+            self.username.clone()
+        }
+
+        pub fn email(&self) -> String {
+            self.email.clone()
+        }
+
+        pub fn email_verified(&self) -> bool {
+            self.email_verified
+        }
+
+        pub fn given_name(&self) -> Option<String> {
+            self.given_name.clone()
+        }
+
+        pub fn family_name(&self) -> Option<String> {
+            self.family_name.clone()
+        }
+    }
+
     #[cfg(feature = "warp")]
-    pub use super::warp_sessions::*;
+    pub use super::warp::sessions::*;
+
+    #[cfg(feature = "axum")]
+    pub use super::axum::sessions::*;
 }
 
-pub use self::sessions::AuthRejectReason;
 #[cfg(feature = "warp")]
-pub use self::sessions::{authenticate, AuthenticatedUser};
-
-#[cfg(feature = "warp")]
-pub mod warp_email;
+pub use self::sessions::authenticate;
+pub use self::sessions::{AuthRejectReason, AuthenticatedUser, ValidatesIdentity};
 
 pub mod email {
+    use diesel_async::AsyncPgConnection;
+    use email_address::EmailAddress;
+    use tokio::sync::broadcast;
+
+    use crate::email::{EmailTemplate, EmailTemplateBuilder, ScheduledEmail};
+    use crate::tables::{UnverifiedEmailTable, UserTable};
+
+    pub(crate) async fn send_verification_email<E, B, T, U>(
+        conn: &mut AsyncPgConnection,
+        base_url: &str,
+        to_address: EmailAddress,
+        builder: B,
+        email_tx: broadcast::Sender<ScheduledEmail<T>>,
+    ) -> anyhow::Result<()>
+    where
+        E: UnverifiedEmailTable,
+        B: EmailTemplateBuilder<T, U>,
+        T: EmailTemplate,
+        U: UserTable,
+    {
+        let email_link = E::create(conn, &to_address, base_url).await?;
+        let template = builder.unique_link(&email_link).build()?;
+        let email = ScheduledEmail {
+            to: to_address,
+            template,
+        };
+        email_tx.send(email).ok();
+        Ok(())
+    }
+
     #[cfg(feature = "warp")]
-    pub use super::warp_email::*;
+    pub use super::warp::email::*;
+
+    #[cfg(feature = "axum")]
+    pub use super::axum::email::*;
 }
 
 #[derive(Debug)]
 pub struct AnyhowError {
     pub error: anyhow::Error,
 }
+
 impl From<anyhow::Error> for AnyhowError {
     fn from(error: anyhow::Error) -> Self {
         Self { error }
     }
 }
-#[cfg(feature = "warp")]
-impl warp::reject::Reject for AnyhowError {}
+
+impl From<AnyhowError> for String {
+    fn from(anyerr: AnyhowError) -> String {
+        anyerr.error.to_string()
+    }
+}
 
 #[derive(Debug)]
 #[non_exhaustive]
@@ -56,251 +207,9 @@ pub enum RejectReason {
     NotFound { resource: String },
     Session,
 }
-#[cfg(feature = "warp")]
-impl warp::reject::Reject for RejectReason {}
+
+#[cfg(feature = "axum")]
+pub use axum::AppState;
 
 #[cfg(feature = "warp")]
-mod warp_utils {
-    use std::convert::Infallible;
-    use std::string::ToString;
-    use std::sync::Arc;
-
-    use reqwest::header::{HeaderMap, HeaderValue};
-    use serde_json::json;
-    use tokio::sync::broadcast;
-    use uuid::Uuid;
-    use warp::{http::StatusCode, Filter, Rejection, Reply};
-    use warp_sessions::MemoryStore;
-
-    use super::{AnyhowError, AuthRejectReason, RejectReason};
-    use crate::tables::DbPool;
-
-    pub fn init_session_store() -> MemoryStore {
-        MemoryStore::new()
-    }
-
-    impl RejectReason {
-        fn into_rejection(self) -> Rejection {
-            warp::reject::custom(self)
-        }
-
-        pub fn bad_request<S: Into<String>>(reason: S) -> Rejection {
-            RejectReason::BadRequest {
-                reason: reason.into(),
-            }
-            .into_rejection()
-        }
-
-        pub fn conflict<S: Into<String>>(resource: S) -> Rejection {
-            RejectReason::Conflict {
-                resource: resource.into(),
-            }
-            .into_rejection()
-        }
-
-        pub fn pool_error(
-            err: bb8::RunError<diesel_async::pooled_connection::PoolError>,
-        ) -> Rejection {
-            RejectReason::DatabaseError {
-                msg: format!("pool {}", err),
-            }
-            .into_rejection()
-        }
-
-        pub fn database_error(err: diesel::result::Error) -> Rejection {
-            RejectReason::DatabaseError {
-                msg: format!("database {}", err),
-            }
-            .into_rejection()
-        }
-
-        pub fn forbidden<S: Into<String>>(user_id: Uuid, reason: S) -> Rejection {
-            RejectReason::Forbidden {
-                user_id,
-                reason: reason.into(),
-            }
-            .into_rejection()
-        }
-
-        pub fn missing_env_key<S: Into<String>>(key: S) -> Rejection {
-            RejectReason::MissingEnvKey { key: key.into() }.into_rejection()
-        }
-
-        pub fn not_found<S: Into<String>>(resource: S) -> Rejection {
-            RejectReason::NotFound {
-                resource: resource.into(),
-            }
-            .into_rejection()
-        }
-
-        pub fn session() -> Rejection {
-            RejectReason::Session.into_rejection()
-        }
-    }
-
-    pub fn with_db(
-        pool: Arc<DbPool>,
-    ) -> impl Filter<Extract = (Arc<DbPool>,), Error = std::convert::Infallible> + Clone {
-        warp::any().map(move || pool.clone())
-    }
-
-    pub fn with_string<S: Send + Sync + Clone + ToString>(
-        string: S,
-    ) -> impl Filter<Extract = (String,), Error = std::convert::Infallible> + Clone {
-        warp::any().map(move || string.to_string())
-    }
-
-    pub fn with_broadcast<M: Send + Sync + Clone + 'static>(
-        sender: broadcast::Sender<M>,
-    ) -> impl Filter<Extract = (broadcast::Sender<M>,), Error = Infallible> + Clone {
-        warp::any().map(move || sender.clone())
-    }
-
-    pub async fn handle_rejection(
-        err: warp::reject::Rejection,
-    ) -> Result<Box<dyn warp::Reply>, std::convert::Infallible> {
-        if err.is_not_found() {
-            return Ok(Box::new(warp::reply::with_status(
-                "NOT_FOUND",
-                StatusCode::NOT_FOUND,
-            )));
-        }
-
-        if let Some(auth_err) = err.find::<AuthRejectReason>() {
-            match auth_err {
-                AuthRejectReason::NoSessionToken => {
-                    let auth_path = warp::http::Uri::try_from("/auth/login").expect("uri failed");
-                    let mut no_cache_headers = HeaderMap::new();
-                    no_cache_headers.append(
-                        "Cache-Control",
-                        HeaderValue::from_str("no-store, must-revalidate")
-                            .expect("Invalid header value"),
-                    );
-                    no_cache_headers.append(
-                        "Expires",
-                        HeaderValue::from_str("0").expect("Invalid header value"),
-                    );
-
-                    let reply = warp::redirect(auth_path);
-                    let mut response = reply.into_response();
-                    let headers = response.headers_mut();
-                    headers.extend(no_cache_headers);
-
-                    return Ok(Box::new(response));
-                }
-                AuthRejectReason::InvalidSessionToken { reason } => {
-                    tracing::error!("InvalidSessionToken: {}", reason);
-                    let json = warp::reply::json(&"Unauthorized");
-                    let response =
-                        warp::reply::with_status(json, warp::http::StatusCode::UNAUTHORIZED);
-                    return Ok(Box::new(response));
-                }
-                AuthRejectReason::OidcError { msg } => {
-                    tracing::error!("OidcError: {}", msg);
-                    let json = warp::reply::json(&"OIDC Configuration Error");
-                    let response = warp::reply::with_status(
-                        json,
-                        warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    );
-                    return Ok(Box::new(response));
-                }
-                AuthRejectReason::CsrfMismatch => {
-                    tracing::error!("CSRF Mismatch!");
-                    let json = warp::reply::json(&"OIDC Configuration Error");
-                    let response =
-                        warp::reply::with_status(json, warp::http::StatusCode::FORBIDDEN);
-                    return Ok(Box::new(response));
-                }
-                AuthRejectReason::TokenTransferFailed { msg } => {
-                    tracing::error!("IdP is in down or degraded state! {}", msg);
-                    let json = warp::reply::json(&"Error communicating with identity provider");
-                    let response =
-                        warp::reply::with_status(json, warp::http::StatusCode::BAD_GATEWAY);
-                    return Ok(Box::new(response));
-                }
-                AuthRejectReason::InvalidCredentials => {
-                    let json = warp::reply::json(&"Invalid form of authorization");
-                    let response =
-                        warp::reply::with_status(json, warp::http::StatusCode::FORBIDDEN);
-                    return Ok(Box::new(response));
-                }
-            }
-        }
-
-        if let Some(anyhow_err) = err.find::<AnyhowError>() {
-            tracing::error!("{:?}", anyhow_err.error);
-            let json = warp::reply::json(&json!({"error": anyhow_err.error.to_string()}));
-            let response =
-                warp::reply::with_status(json, warp::http::StatusCode::INTERNAL_SERVER_ERROR);
-            return Ok(Box::new(response));
-        }
-
-        if let Some(err) = err.find::<RejectReason>() {
-            match err {
-                RejectReason::BadRequest { reason } => {
-                    let json = warp::reply::json(&json!({"rejected": reason}));
-                    let response =
-                        warp::reply::with_status(json, warp::http::StatusCode::BAD_REQUEST);
-                    return Ok(Box::new(response));
-                }
-                RejectReason::Conflict { resource } => {
-                    let json = warp::reply::json(&json!({"conflict": resource}));
-                    let response = warp::reply::with_status(json, warp::http::StatusCode::CONFLICT);
-                    return Ok(Box::new(response));
-                }
-                RejectReason::DatabaseError { msg } => {
-                    tracing::error!("Database error: {}", msg);
-                    let json = warp::reply::json(&json!({"rejected": msg}));
-                    let response = warp::reply::with_status(
-                        json,
-                        warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    );
-                    return Ok(Box::new(response));
-                }
-                RejectReason::Forbidden { user_id, reason } => {
-                    tracing::error!("Forbidden {}: {}", user_id, reason);
-                    let json = warp::reply::json(&json!({"rejected": "forbidden"}));
-                    let response =
-                        warp::reply::with_status(json, warp::http::StatusCode::FORBIDDEN);
-                    return Ok(Box::new(response));
-                }
-                RejectReason::NotFound { resource } => {
-                    let json = warp::reply::json(&json!({"missing": resource}));
-                    let response =
-                        warp::reply::with_status(json, warp::http::StatusCode::NOT_FOUND);
-                    return Ok(Box::new(response));
-                }
-                RejectReason::MissingEnvKey { key } => {
-                    tracing::error!("Missing Environment Key: {}", key);
-                    let json =
-                        warp::reply::json(&json!({"error": "Server misconfiguration error"}));
-                    let response = warp::reply::with_status(
-                        json,
-                        warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    );
-                    return Ok(Box::new(response));
-                }
-                RejectReason::Session => {
-                    tracing::error!("Session error");
-                    let json =
-                        warp::reply::json(&json!({"error": "Server misconfiguration error"}));
-                    let response = warp::reply::with_status(
-                        json,
-                        warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    );
-                    return Ok(Box::new(response));
-                }
-            }
-        }
-
-        tracing::error!("Unhandled Error: {:?}", err);
-        let json = warp::reply::json(&"Unhandled error");
-        Ok(Box::new(warp::reply::with_status(
-            json,
-            warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-        )))
-    }
-}
-
-#[cfg(feature = "warp")]
-pub use warp_utils::*;
+pub use warp::{init_session_store, with_db, with_string, with_broadcast, handle_rejection};

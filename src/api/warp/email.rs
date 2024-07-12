@@ -1,7 +1,6 @@
 use std::str::FromStr;
 use std::sync::Arc;
 
-use diesel_async::AsyncPgConnection;
 use email_address::EmailAddress;
 use serde::Deserialize;
 use serde_json::json;
@@ -18,33 +17,7 @@ use crate::tables::{
     DbPool, EmailVerification, UnverifiedEmailTable, UserAccountType, UserIdTable, UserTable,
 };
 
-async fn send_verification_email<E, B, T, U>(
-    conn: &mut AsyncPgConnection,
-    base_url: &str,
-    to_address: EmailAddress,
-    builder: B,
-    email_tx: broadcast::Sender<ScheduledEmail<T>>,
-) -> Result<(), Rejection>
-where
-    E: UnverifiedEmailTable,
-    B: EmailTemplateBuilder<T, U>,
-    T: EmailTemplate,
-    U: UserTable,
-{
-    let email_link = E::create(conn, &to_address, base_url)
-        .await
-        .map_err(RejectReason::database_error)?;
-    let template = builder
-        .unique_link(&email_link)
-        .build()
-        .map_err(AnyhowError::from)?;
-    let email = ScheduledEmail {
-        to: to_address,
-        template,
-    };
-    email_tx.send(email).ok();
-    Ok(())
-}
+use crate::api::email::send_verification_email;
 
 #[derive(Deserialize)]
 struct VerifyQuery {
@@ -135,7 +108,9 @@ async fn resend_email_handler<
     let builder = B::new(&mut conn, &user).await.map_err(AnyhowError::from)?;
     let email = EmailAddress::from_str(&user.email())
         .map_err(|_| RejectReason::bad_request(format!("Invalid user email: {}", user.email())))?;
-    send_verification_email::<E, B, T, U>(&mut conn, &base_url, email, builder, email_tx).await?;
+    send_verification_email::<E, B, T, U>(&mut conn, &base_url, email, builder, email_tx)
+        .await
+        .map_err(AnyhowError::from)?;
     Ok((warp::reply::json(&json!({"message": "resent"})), session))
 }
 

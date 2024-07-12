@@ -1,3 +1,4 @@
+#[cfg(any(feature = "warp", feature = "axum"))]
 pub mod api;
 pub mod email;
 pub mod oidc;
@@ -11,5 +12,5 @@ pub mod tracing;
 
 pub use crate::rustls::{get_cert_pool, init_cert_pool};
 
-pub use crate::router::Router;
+pub use crate::router::ChannelRouter;
 pub use crate::server::{BaseConfig, InnerConfig};
