@@ -178,7 +178,6 @@ pub enum RejectReason {
     Session,
 }
 
-#[cfg(not(feature = "warp"))]
 impl RejectReason {
     pub fn bad_request<S: Into<String>>(reason: S) -> Self {
         RejectReason::BadRequest {

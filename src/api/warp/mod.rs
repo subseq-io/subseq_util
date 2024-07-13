@@ -8,7 +8,6 @@ use std::sync::Arc;
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde_json::json;
 use tokio::sync::broadcast;
-use uuid::Uuid;
 use warp::{http::StatusCode, Filter, Rejection, Reply};
 use warp_sessions::MemoryStore;
 
@@ -23,61 +22,8 @@ impl warp::reject::Reject for AnyhowError {}
 impl warp::reject::Reject for RejectReason {}
 
 impl RejectReason {
-    fn into_rejection(self) -> Rejection {
+    pub fn into_rejection(self) -> Rejection {
         warp::reject::custom(self)
-    }
-
-    pub fn bad_request<S: Into<String>>(reason: S) -> Rejection {
-        RejectReason::BadRequest {
-            reason: reason.into(),
-        }
-        .into_rejection()
-    }
-
-    pub fn conflict<S: Into<String>>(resource: S) -> Rejection {
-        RejectReason::Conflict {
-            resource: resource.into(),
-        }
-        .into_rejection()
-    }
-
-    pub fn pool_error(
-        err: bb8::RunError<diesel_async::pooled_connection::PoolError>,
-    ) -> Rejection {
-        RejectReason::DatabaseError {
-            msg: format!("pool {}", err),
-        }
-        .into_rejection()
-    }
-
-    pub fn database_error(err: diesel::result::Error) -> Rejection {
-        RejectReason::DatabaseError {
-            msg: format!("database {}", err),
-        }
-        .into_rejection()
-    }
-
-    pub fn forbidden<S: Into<String>>(user_id: Uuid, reason: S) -> Rejection {
-        RejectReason::Forbidden {
-            user_id,
-            reason: reason.into(),
-        }
-        .into_rejection()
-    }
-
-    pub fn missing_env_key<S: Into<String>>(key: S) -> Rejection {
-        RejectReason::MissingEnvKey { key: key.into() }.into_rejection()
-    }
-
-    pub fn not_found<S: Into<String>>(resource: S) -> Rejection {
-        RejectReason::NotFound {
-            resource: resource.into(),
-        }
-        .into_rejection()
-    }
-
-    pub fn session() -> Rejection {
-        RejectReason::Session.into_rejection()
     }
 }
 
@@ -134,37 +80,31 @@ pub async fn handle_rejection(
             AuthRejectReason::InvalidSessionToken { reason } => {
                 tracing::error!("InvalidSessionToken: {}", reason);
                 let json = warp::reply::json(&"Unauthorized");
-                let response =
-                    warp::reply::with_status(json, warp::http::StatusCode::UNAUTHORIZED);
+                let response = warp::reply::with_status(json, warp::http::StatusCode::UNAUTHORIZED);
                 return Ok(Box::new(response));
             }
             AuthRejectReason::OidcError { msg } => {
                 tracing::error!("OidcError: {}", msg);
                 let json = warp::reply::json(&"OIDC Configuration Error");
-                let response = warp::reply::with_status(
-                    json,
-                    warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-                );
+                let response =
+                    warp::reply::with_status(json, warp::http::StatusCode::INTERNAL_SERVER_ERROR);
                 return Ok(Box::new(response));
             }
             AuthRejectReason::CsrfMismatch => {
                 tracing::error!("CSRF Mismatch!");
                 let json = warp::reply::json(&"OIDC Configuration Error");
-                let response =
-                    warp::reply::with_status(json, warp::http::StatusCode::FORBIDDEN);
+                let response = warp::reply::with_status(json, warp::http::StatusCode::FORBIDDEN);
                 return Ok(Box::new(response));
             }
             AuthRejectReason::TokenTransferFailed { msg } => {
                 tracing::error!("IdP is in down or degraded state! {}", msg);
                 let json = warp::reply::json(&"Error communicating with identity provider");
-                let response =
-                    warp::reply::with_status(json, warp::http::StatusCode::BAD_GATEWAY);
+                let response = warp::reply::with_status(json, warp::http::StatusCode::BAD_GATEWAY);
                 return Ok(Box::new(response));
             }
             AuthRejectReason::InvalidCredentials => {
                 let json = warp::reply::json(&"Invalid form of authorization");
-                let response =
-                    warp::reply::with_status(json, warp::http::StatusCode::FORBIDDEN);
+                let response = warp::reply::with_status(json, warp::http::StatusCode::FORBIDDEN);
                 return Ok(Box::new(response));
             }
         }
@@ -182,8 +122,7 @@ pub async fn handle_rejection(
         match err {
             RejectReason::BadRequest { reason } => {
                 let json = warp::reply::json(&json!({"rejected": reason}));
-                let response =
-                    warp::reply::with_status(json, warp::http::StatusCode::BAD_REQUEST);
+                let response = warp::reply::with_status(json, warp::http::StatusCode::BAD_REQUEST);
                 return Ok(Box::new(response));
             }
             RejectReason::Conflict { resource } => {
@@ -194,43 +133,33 @@ pub async fn handle_rejection(
             RejectReason::DatabaseError { msg } => {
                 tracing::error!("Database error: {}", msg);
                 let json = warp::reply::json(&json!({"rejected": msg}));
-                let response = warp::reply::with_status(
-                    json,
-                    warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-                );
+                let response =
+                    warp::reply::with_status(json, warp::http::StatusCode::INTERNAL_SERVER_ERROR);
                 return Ok(Box::new(response));
             }
             RejectReason::Forbidden { user_id, reason } => {
                 tracing::error!("Forbidden {}: {}", user_id, reason);
                 let json = warp::reply::json(&json!({"rejected": "forbidden"}));
-                let response =
-                    warp::reply::with_status(json, warp::http::StatusCode::FORBIDDEN);
+                let response = warp::reply::with_status(json, warp::http::StatusCode::FORBIDDEN);
                 return Ok(Box::new(response));
             }
             RejectReason::NotFound { resource } => {
                 let json = warp::reply::json(&json!({"missing": resource}));
-                let response =
-                    warp::reply::with_status(json, warp::http::StatusCode::NOT_FOUND);
+                let response = warp::reply::with_status(json, warp::http::StatusCode::NOT_FOUND);
                 return Ok(Box::new(response));
             }
             RejectReason::MissingEnvKey { key } => {
                 tracing::error!("Missing Environment Key: {}", key);
-                let json =
-                    warp::reply::json(&json!({"error": "Server misconfiguration error"}));
-                let response = warp::reply::with_status(
-                    json,
-                    warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-                );
+                let json = warp::reply::json(&json!({"error": "Server misconfiguration error"}));
+                let response =
+                    warp::reply::with_status(json, warp::http::StatusCode::INTERNAL_SERVER_ERROR);
                 return Ok(Box::new(response));
             }
             RejectReason::Session => {
                 tracing::error!("Session error");
-                let json =
-                    warp::reply::json(&json!({"error": "Server misconfiguration error"}));
-                let response = warp::reply::with_status(
-                    json,
-                    warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-                );
+                let json = warp::reply::json(&json!({"error": "Server misconfiguration error"}));
+                let response =
+                    warp::reply::with_status(json, warp::http::StatusCode::INTERNAL_SERVER_ERROR);
                 return Ok(Box::new(response));
             }
         }
