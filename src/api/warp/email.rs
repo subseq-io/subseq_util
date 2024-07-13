@@ -9,15 +9,15 @@ use warp::{http::StatusCode, Filter, Rejection, Reply};
 use warp_sessions::{MemoryStore, SessionWithStore};
 
 use super::with_db;
-use crate::api::sessions::{store_auth_cookie, AuthenticatedUser};
 use crate::api::{authenticate, with_broadcast, with_string, AnyhowError, RejectReason};
+use crate::api::{sessions::store_auth_cookie, AuthenticatedUser};
 use crate::email::{EmailTemplate, EmailTemplateBuilder, ScheduledEmail};
 use crate::oidc::IdentityProvider;
 use crate::tables::{
     DbPool, EmailVerification, UnverifiedEmailTable, UserAccountType, UserIdTable, UserTable,
 };
 
-use crate::api::email::send_verification_email;
+use crate::email::send_verification_email;
 
 #[derive(Deserialize)]
 struct VerifyQuery {

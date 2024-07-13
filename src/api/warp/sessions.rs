@@ -17,7 +17,7 @@ use warp_sessions::{
 use crate::oidc::{IdentityProvider, OidcToken};
 
 use super::{AnyhowError, RejectReason};
-use crate::api::sessions::{AuthRejectReason, AuthenticatedUser, ValidatesIdentity};
+use crate::api::{AuthRejectReason, AuthenticatedUser, ValidatesIdentity};
 
 impl AuthRejectReason {
     fn into_rejection(self) -> Rejection {

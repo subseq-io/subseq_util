@@ -10,8 +10,31 @@ use tokio::sync::broadcast;
 
 use crate::{
     rate_limit::{rate_limited_channel, RateLimitProfile, RateLimitedReceiver},
-    tables::UserTable,
+    tables::{UnverifiedEmailTable, UserTable},
 };
+
+pub async fn send_verification_email<E, B, T, U>(
+    conn: &mut AsyncPgConnection,
+    base_url: &str,
+    to_address: EmailAddress,
+    builder: B,
+    email_tx: broadcast::Sender<ScheduledEmail<T>>,
+) -> anyhow::Result<()>
+where
+    E: UnverifiedEmailTable,
+    B: EmailTemplateBuilder<T, U>,
+    T: EmailTemplate,
+    U: UserTable,
+{
+    let email_link = E::create(conn, &to_address, base_url).await?;
+    let template = builder.unique_link(&email_link).build()?;
+    let email = ScheduledEmail {
+        to: to_address,
+        template,
+    };
+    email_tx.send(email).ok();
+    Ok(())
+}
 
 /// Intended to be used with an HTML-based template.
 /// I use Maizzle for this.

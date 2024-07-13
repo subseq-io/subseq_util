@@ -19,7 +19,7 @@ use time::Duration;
 use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer};
 
 use super::{sessions::AuthParts, AnyhowError, AppState, RejectReason};
-use crate::api::email::send_verification_email;
+use crate::email::send_verification_email;
 
 #[derive(Deserialize)]
 struct VerifyQuery {

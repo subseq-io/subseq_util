@@ -16,8 +16,8 @@ use urlencoding::decode;
 
 use crate::oidc::OidcToken;
 
-use super::{AppState, AuthRejectReason, RejectReason};
-use crate::api::{AuthenticatedUser, ValidatesIdentity};
+use super::{AppState, RejectReason};
+use crate::api::{AuthRejectReason, AuthenticatedUser, ValidatesIdentity};
 
 pub const AUTH_COOKIE: &str = "access_token";
 
