@@ -1,3 +1,6 @@
+use std::fmt;
+use std::str::FromStr;
+
 use diesel::{
     backend::Backend,
     deserialize::{FromSql, FromSqlRow},
@@ -7,7 +10,6 @@ use diesel::{
 };
 use diesel_async::AsyncPgConnection;
 use serde::{Deserialize, Serialize};
-use std::fmt;
 use uuid::Uuid;
 
 #[derive(
@@ -40,6 +42,14 @@ where
 {
     fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, DB>) -> diesel::serialize::Result {
         self.0.to_sql(out)
+    }
+}
+
+impl FromStr for UserId {
+    type Err = uuid::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(UserId(Uuid::parse_str(s)?))
     }
 }
 
