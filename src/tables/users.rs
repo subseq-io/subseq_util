@@ -1,6 +1,45 @@
-use diesel::prelude::*;
+use diesel::{
+    backend::Backend,
+    deserialize::{FromSql, FromSqlRow},
+    expression::AsExpression,
+    prelude::*,
+    serialize::{Output, ToSql},
+};
 use diesel_async::AsyncPgConnection;
+use serde::{Deserialize, Serialize};
+use std::fmt;
 use uuid::Uuid;
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, AsExpression, FromSqlRow)]
+#[diesel(sql_type = diesel::sql_types::Uuid)]
+pub struct UserId(pub Uuid);
+
+impl fmt::Display for UserId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl<DB> FromSql<diesel::sql_types::Uuid, DB> for UserId
+where
+    DB: Backend,
+    Uuid: FromSql<diesel::sql_types::Uuid, DB>,
+{
+    fn from_sql(bytes: DB::RawValue<'_>) -> diesel::deserialize::Result<Self> {
+        let uuid = Uuid::from_sql(bytes)?;
+        Ok(UserId(uuid))
+    }
+}
+
+impl<DB> ToSql<diesel::sql_types::Uuid, DB> for UserId
+where
+    DB: Backend,
+    Uuid: ToSql<diesel::sql_types::Uuid, DB>,
+{
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, DB>) -> diesel::serialize::Result {
+        self.0.to_sql(out)
+    }
+}
 
 pub enum UserAccountType {
     Admin,
@@ -50,7 +89,7 @@ impl UserAccountType {
 }
 
 pub trait UserTable: Sized + Clone + Send {
-    fn id(&self) -> Uuid;
+    fn id(&self) -> UserId;
     fn email(&self) -> String;
     fn from_username(
         conn: &mut AsyncPgConnection,
@@ -62,14 +101,14 @@ pub trait UserTable: Sized + Clone + Send {
     ) -> impl std::future::Future<Output = Option<Self>> + Send;
     fn create(
         conn: &mut AsyncPgConnection,
-        user_id: Uuid,
+        user_id: UserId,
         email: &str,
         username: &str,
         account_type: UserAccountType,
     ) -> impl std::future::Future<Output = QueryResult<Self>> + Send;
     fn get(
         conn: &mut AsyncPgConnection,
-        id: Uuid,
+        id: UserId,
     ) -> impl std::future::Future<Output = Option<Self>> + Send;
     fn list(
         conn: &mut AsyncPgConnection,
@@ -81,7 +120,7 @@ pub trait UserTable: Sized + Clone + Send {
 pub trait UserIdTable: Sized + Send {
     fn get(
         conn: &mut AsyncPgConnection,
-        user_id: Uuid,
+        user_id: UserId,
     ) -> impl std::future::Future<Output = QueryResult<Self>> + Send;
     fn set_account_type(
         &mut self,
@@ -100,21 +139,21 @@ macro_rules! create_async_user_base {
         #[derive(PartialEq, Queryable, Insertable, Clone, Debug, Serialize)]
         #[diesel(table_name = crate::schema::auth::metadata)]
         pub struct UserMetadata {
-            pub user_id: Uuid,
+            pub user_id: UserId,
             pub data: serde_json::Value,
         }
 
         #[derive(PartialEq, Queryable, Insertable, Clone, Debug, Serialize)]
         #[diesel(table_name = crate::schema::auth::portraits)]
         pub struct UserPortrait {
-            pub user_id: Uuid,
+            pub user_id: UserId,
             pub portrait: Vec<u8>,
         }
 
         #[derive(PartialEq, Queryable, Insertable, Clone, Debug, Serialize)]
         #[diesel(table_name = crate::schema::auth::user_id_accounts)]
         pub struct UserIdAccount {
-            pub user_id: Uuid,
+            pub user_id: UserId,
             pub username: String,
             pub account_type: Option<String>,
         }
@@ -122,7 +161,7 @@ macro_rules! create_async_user_base {
         impl UserIdAccount {
             pub async fn create(
                 conn: &mut AsyncPgConnection,
-                user_id: Uuid,
+                user_id: UserId,
                 username: String,
                 account_type: UserAccountType,
             ) -> QueryResult<Self> {
@@ -140,7 +179,7 @@ macro_rules! create_async_user_base {
         }
 
         impl UserIdTable for UserIdAccount {
-            async fn get(conn: &mut AsyncPgConnection, user_id: Uuid) -> QueryResult<Self> {
+            async fn get(conn: &mut AsyncPgConnection, user_id: UserId) -> QueryResult<Self> {
                 use crate::schema::auth::user_id_accounts::dsl::user_id_accounts;
                 user_id_accounts
                     .find(user_id)
@@ -168,7 +207,7 @@ macro_rules! create_async_user_base {
         #[derive(Queryable, Insertable, Clone, Debug, Serialize, Deserialize)]
         #[diesel(table_name = crate::schema::auth::users)]
         pub struct User {
-            pub id: Uuid,
+            pub id: UserId,
             pub email: String,
             pub created: NaiveDateTime,
         }
@@ -183,7 +222,7 @@ macro_rules! create_async_user_base {
         }
 
         impl UserTable for User {
-            fn id(&self) -> Uuid {
+            fn id(&self) -> UserId {
                 self.id
             }
 
@@ -217,7 +256,7 @@ macro_rules! create_async_user_base {
 
             async fn create(
                 conn: &mut AsyncPgConnection,
-                user_id: Uuid,
+                user_id: UserId,
                 email: &str,
                 username: &str,
                 account_type: UserAccountType,
@@ -264,7 +303,7 @@ macro_rules! create_async_user_base {
                 Ok(user)
             }
 
-            async fn get(conn: &mut AsyncPgConnection, id: Uuid) -> Option<Self> {
+            async fn get(conn: &mut AsyncPgConnection, id: UserId) -> Option<Self> {
                 use crate::schema::auth::users::dsl::users;
                 users
                     .find(id)
@@ -298,7 +337,7 @@ macro_rules! create_async_user_base {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::async_tables::harness::async_list_tables;
+    use crate::tables::harness::list_tables;
     use crate::tables::harness::{to_pg_db_name, DbHarness};
     use crate::tables::ValidationErrorMessage;
     use chrono::NaiveDateTime;
@@ -311,19 +350,16 @@ mod test {
     #[named]
     async fn test_async_user_handle() {
         let db_name = to_pg_db_name(function_name!());
-        let harness = DbHarness::new("localhost", "development", &db_name, None);
-        let mut conn = harness.async_conn().await;
+        let harness = DbHarness::new("localhost", "development", &db_name, None).await;
+        let mut conn = harness.conn().await;
 
-        for table_name in async_list_tables(&mut conn)
-            .await
-            .expect("Tables not retrieved")
-        {
+        for table_name in list_tables(&mut conn).await.expect("Tables not retrieved") {
             eprintln!("Table: {:?}", table_name);
         }
 
         let user = User::create(
             &mut conn,
-            Uuid::new_v4(),
+            UserId(Uuid::new_v4()),
             "test-user@example.com",
             "test_user",
             UserAccountType::Active,

@@ -196,21 +196,32 @@ pub mod harness {
         url: &str,
         server_migrations: Option<EmbeddedMigrations>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-        let mut connection = AsyncConnectionWrapper::<AsyncPgConnection>::establish(&url)?;
-        for mig in
-            <EmbeddedMigrations as MigrationSource<Pg>>::migrations(&AUTH_MIGRATIONS).unwrap()
-        {
-            eprintln!("migration: {}", mig.name());
-        }
-        connection.run_pending_migrations(AUTH_MIGRATIONS)?;
-        if let Some(server_migrations) = server_migrations {
-            for mig in
-                <EmbeddedMigrations as MigrationSource<Pg>>::migrations(&server_migrations).unwrap()
-            {
-                eprintln!("migration: {}", mig.name());
-            }
-            connection.run_pending_migrations(server_migrations)?;
-        }
+        use std::thread::spawn;
+        let url = url.to_string();
+        spawn(
+            move || -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                let mut connection = AsyncConnectionWrapper::<AsyncPgConnection>::establish(&url)?;
+                for mig in <EmbeddedMigrations as MigrationSource<Pg>>::migrations(&AUTH_MIGRATIONS)
+                    .unwrap()
+                {
+                    eprintln!("migration: {}", mig.name());
+                }
+                connection.run_pending_migrations(AUTH_MIGRATIONS)?;
+                if let Some(server_migrations) = server_migrations {
+                    for mig in
+                        <EmbeddedMigrations as MigrationSource<Pg>>::migrations(&server_migrations)
+                            .unwrap()
+                    {
+                        eprintln!("migration: {}", mig.name());
+                    }
+                    connection.run_pending_migrations(server_migrations)?;
+                }
+                Ok(())
+            },
+        )
+        .join()
+        .unwrap()
+        .unwrap();
         Ok(())
     }
 

@@ -4,6 +4,7 @@ use openidconnect::core::CoreIdTokenClaims;
 use uuid::Uuid;
 
 use crate::oidc::OidcToken;
+use crate::tables::users::UserId;
 
 #[cfg(feature = "axum")]
 mod axum;
@@ -100,8 +101,8 @@ impl AuthenticatedUser {
         ))
     }
 
-    pub fn id(&self) -> Uuid {
-        self.id
+    pub fn id(&self) -> UserId {
+        UserId(self.id)
     }
 
     pub fn username(&self) -> String {

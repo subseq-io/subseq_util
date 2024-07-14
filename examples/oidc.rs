@@ -9,7 +9,8 @@ use subseq_util::{
         sessions::{self, store_auth_cookie},
         AuthenticatedUser,
     },
-    oidc::{init_client_pool, IdentityProvider, OidcCredentials},
+    init_cert_pool,
+    oidc::{IdentityProvider, OidcCredentials},
     tracing::setup_tracing,
     BaseConfig, InnerConfig,
 };
@@ -42,7 +43,7 @@ async fn main() {
         .as_ref()
         .expect("Must define OIDC for this example");
 
-    init_client_pool(
+    init_cert_pool(
         tls_conf
             .ca_path
             .clone()
@@ -80,8 +81,8 @@ async fn main() {
 
     warp::serve(routes)
         .tls()
-        .cert_path(tls_conf.cert_path.as_str())
-        .key_path(tls_conf.key_path.as_str())
+        .cert_path(tls_conf.cert_path.to_str().unwrap())
+        .key_path(tls_conf.key_path.to_str().unwrap())
         .run(([127, 0, 0, 1], 8443))
         .await;
 }

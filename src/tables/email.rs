@@ -127,7 +127,7 @@ mod test {
     use url::Url;
 
     use super::*;
-    use crate::tables::harness::async_list_tables;
+    use crate::tables::harness::list_tables;
     use crate::tables::harness::{to_pg_db_name, DbHarness};
     use crate::tables::{gen_rand_string, EmailVerification};
 
@@ -148,13 +148,10 @@ mod test {
     #[named]
     async fn test_async_email_verifier() {
         let db_name = to_pg_db_name(function_name!());
-        let harness = DbHarness::new("localhost", "development", &db_name, None);
-        let mut conn = harness.async_conn().await;
+        let harness = DbHarness::new("localhost", "development", &db_name, None).await;
+        let mut conn = harness.conn().await;
 
-        for table_name in async_list_tables(&mut conn)
-            .await
-            .expect("Tables not retrieved")
-        {
+        for table_name in list_tables(&mut conn).await.expect("Tables not retrieved") {
             eprintln!("Table: {:?}", table_name);
         }
 
