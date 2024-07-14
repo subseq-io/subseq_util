@@ -10,13 +10,10 @@ use axum::{
     Json, Router,
 };
 use axum_extra::extract::CookieJar;
-use cookie::SameSite;
 use email_address::EmailAddress;
 use serde::Deserialize;
 use serde_json::json;
 use std::str::FromStr;
-use time::Duration;
-use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer};
 
 use super::{sessions::AuthParts, AnyhowError, AppState, RejectReason};
 use crate::email::send_verification_email;
@@ -132,15 +129,9 @@ pub fn routes<
     EIT: UserIdTable + 'static,
 >(
     app: AppState,
-    store: MemoryStore,
 ) -> Router {
-    let layer = SessionManagerLayer::new(store)
-        .with_secure(false)
-        .with_same_site(SameSite::Lax)
-        .with_expiry(Expiry::OnInactivity(Duration::days(1)));
     Router::new()
         .route("/email/verify", post(verify_email_handler::<E, U, EIT>))
         .route("/email/verify", put(resend_email_handler::<E, B, T, U>))
-        .layer(layer)
         .with_state(app)
 }
