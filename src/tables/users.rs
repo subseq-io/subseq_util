@@ -10,7 +10,9 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, AsExpression, FromSqlRow)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, AsExpression, FromSqlRow,
+)]
 #[diesel(sql_type = diesel::sql_types::Uuid)]
 pub struct UserId(pub Uuid);
 
