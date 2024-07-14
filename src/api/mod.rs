@@ -173,7 +173,7 @@ pub enum RejectReason {
     BadRequest { reason: String },
     Conflict { resource: String },
     DatabaseError { msg: String },
-    Forbidden { user_id: Uuid, reason: String },
+    Forbidden { user_id: UserId, reason: String },
     MissingEnvKey { key: String },
     NotFound { resource: String },
     Session,
@@ -203,7 +203,7 @@ impl RejectReason {
         }
     }
 
-    pub fn forbidden<S: Into<String>>(user_id: Uuid, reason: S) -> Self {
+    pub fn forbidden<S: Into<String>>(user_id: UserId, reason: S) -> Self {
         RejectReason::Forbidden {
             user_id,
             reason: reason.into(),
