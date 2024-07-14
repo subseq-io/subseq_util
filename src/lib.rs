@@ -13,3 +13,5 @@ pub use crate::rustls::{get_cert_pool, init_cert_pool};
 
 pub use crate::router::ChannelRouter;
 pub use crate::server::{BaseConfig, InnerConfig};
+
+pub use crate::tables::UserId;

@@ -9,7 +9,7 @@ use tokio::time::Duration;
 
 use crate::get_cert_pool;
 pub use crate::tables::email::{gen_rand_string, EmailVerification, UnverifiedEmailTable};
-pub use crate::tables::users::{UserAccountType, UserIdTable, UserTable};
+pub use crate::tables::users::{UserAccountType, UserId, UserIdTable, UserTable};
 
 pub type DbPool = Pool<AsyncPgConnection>;
 const DB_TIMEOUT: Duration = Duration::from_secs(3);
