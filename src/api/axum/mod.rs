@@ -34,6 +34,7 @@ impl IntoResponse for AnyhowError {
 
 impl IntoResponse for RejectReason {
     fn into_response(self) -> Response {
+        tracing::trace!("RejectReason: {:?}", self);
         match self {
             _ => (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -47,6 +48,7 @@ impl IntoResponse for RejectReason {
 
 impl IntoResponse for AuthRejectReason {
     fn into_response(self) -> Response {
+        tracing::trace!("AuthRejectReason: {:?}", self);
         match self {
             _ => (
                 StatusCode::INTERNAL_SERVER_ERROR,

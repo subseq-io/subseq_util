@@ -175,12 +175,16 @@ impl IdentityProvider {
             Some(tok) => tok,
             None => anyhow::bail!("No refresh token"),
         };
-        tracing::trace!("refresh request refresh_token: {:?}", refresh_token);
+        tracing::trace!(
+            "refresh request refresh_token: {:?}",
+            refresh_token.secret()
+        );
         let token_response = self
             .client
             .exchange_refresh_token(refresh_token)
             .request_async(async_http_client)
             .await?;
+        tracing::trace!("refresh request");
         match token.refresh(token_response) {
             Some(token) => Ok(token),
             None => anyhow::bail!("Missing token"),
@@ -224,6 +228,7 @@ impl IdentityProvider {
             .request_async(async_http_client)
             .await?;
         let oidc_token = OidcToken::from_token_response(token_response, nonce)?;
+        tracing::trace!("validate_token");
         self.validate_token(&oidc_token)?;
         Ok(oidc_token)
     }
