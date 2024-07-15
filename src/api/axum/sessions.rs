@@ -15,6 +15,7 @@ use axum::{
 use axum_extra::extract::CookieJar as AxumCookieJar;
 use cookie::{Cookie, CookieJar, SameSite};
 use futures_util::future::BoxFuture;
+use hyper::body::Incoming;
 use openidconnect::{core::CoreIdTokenClaims, AuthorizationCode, Nonce, PkceCodeVerifier};
 use serde::Deserialize;
 use time::Duration;
@@ -156,10 +157,10 @@ where
     }
 }
 
-impl<State, Wrapped> Service<Request> for AuthService<State, Wrapped>
+impl<State, Wrapped> Service<Request<Incoming>> for AuthService<State, Wrapped>
 where
     State: Clone + Send + Sync + ValidatesIdentity + 'static,
-    Wrapped: Service<Request, Response = Response> + Clone + Send + 'static,
+    Wrapped: Service<Request<Incoming>, Response = Response> + Clone + Send + 'static,
     Wrapped::Future: Send + 'static,
 {
     type Response = Wrapped::Response;
@@ -170,7 +171,7 @@ where
         self.inner.poll_ready(cx)
     }
 
-    fn call(&mut self, mut req: Request) -> Self::Future {
+    fn call(&mut self, mut req: Request<Incoming>) -> Self::Future {
         let state = self.state.clone();
         let mut inner = self.inner.clone();
         Box::pin(async move {
