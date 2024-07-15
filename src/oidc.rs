@@ -71,6 +71,10 @@ pub struct OidcToken {
 
 impl OidcToken {
     fn from_token_response(token: CoreTokenResponse, nonce: Nonce) -> AnyResult<Self> {
+        tracing::trace!("from_token_response");
+        tracing::trace!("id_token: {:?}", token.id_token());
+        tracing::trace!("access_token: {:?}", token.access_token());
+        tracing::trace!("refresh_token: {:?}", token.refresh_token());
         Ok(Self {
             id_token: token
                 .id_token()
@@ -171,6 +175,7 @@ impl IdentityProvider {
             Some(tok) => tok,
             None => anyhow::bail!("No refresh token"),
         };
+        tracing::trace!("refresh request refresh_token: {:?}", refresh_token);
         let token_response = self
             .client
             .exchange_refresh_token(refresh_token)
