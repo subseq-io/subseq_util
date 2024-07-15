@@ -1,16 +1,24 @@
+use std::task::{Context, Poll};
+
 use axum::{
     async_trait,
-    extract::{FromRequestParts, Query, State},
-    http::{header::AUTHORIZATION, request::Parts},
+    extract::{FromRequestParts, Query, Request, State},
+    http::{
+        header::{AUTHORIZATION, COOKIE, SET_COOKIE},
+        request::Parts,
+        HeaderMap, HeaderValue, StatusCode,
+    },
     response::{IntoResponse, Redirect, Response},
     routing::get,
     Router,
 };
-use axum_extra::extract::cookie::{Cookie, CookieJar};
-use cookie::SameSite;
+use axum_extra::extract::CookieJar as AxumCookieJar;
+use cookie::{Cookie, CookieJar, SameSite};
+use futures_util::future::BoxFuture;
 use openidconnect::{core::CoreIdTokenClaims, AuthorizationCode, Nonce, PkceCodeVerifier};
 use serde::Deserialize;
 use time::Duration;
+use tower::Service;
 use tower_sessions::{Expiry, MemoryStore, Session, SessionManagerLayer};
 use urlencoding::decode;
 
@@ -68,45 +76,131 @@ impl ValidatesIdentity for AppState {
     }
 }
 
-pub struct AuthParts(pub CookieJar, pub AuthenticatedUser);
+#[derive(Clone)]
+pub struct AuthService<State, Wrapped> {
+    state: State,
+    inner: Wrapped,
+}
 
-#[async_trait]
-impl<S> FromRequestParts<S> for AuthParts
+impl<State, Wrapped> AuthService<State, Wrapped>
 where
-    S: Send + Sync + ValidatesIdentity,
+    State: ValidatesIdentity,
 {
-    type Rejection = AuthRejectReason;
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &S,
-    ) -> Result<AuthParts, Self::Rejection> {
-        let authorization = &parts.headers.get(AUTHORIZATION);
-        let cookies = CookieJar::from_headers(&parts.headers);
+    pub fn new(state: State, inner: Wrapped) -> Self {
+        AuthService { state, inner }
+    }
 
+    async fn authorize(
+        state: &State,
+        authorization: Option<&HeaderValue>,
+        cookies: &mut CookieJar,
+    ) -> Option<AuthenticatedUser> {
         // Get the token, preferring Bearer tokens first
-        let token =
-            if let Some(token) = split_bearer(authorization.and_then(|hv| hv.to_str().ok())) {
-                Some(token)
+        let token = if let Some(token) = split_bearer(authorization.and_then(|hv| hv.to_str().ok()))
+        {
+            Some(token)
+        } else {
+            let auth_cookie = cookies.get(AUTH_COOKIE);
+            if let Some(auth_cookie) = auth_cookie {
+                Some(
+                    parse_auth_cookie(auth_cookie.value())
+                        .map_err(|err| {
+                            tracing::warn!("Invalid authorization token: {:?}", err);
+                            err
+                        })
+                        .ok()?,
+                )
             } else {
-                let auth_cookie = cookies.get(AUTH_COOKIE);
-                if let Some(auth_cookie) = auth_cookie {
-                    Some(parse_auth_cookie(auth_cookie.value())?)
-                } else {
-                    None
-                }
+                None
             }
-            .ok_or_else(AuthRejectReason::no_session_token)?;
+        }?;
 
         let (auth_user, token) = AuthenticatedUser::validate_session(state, token)
             .await
-            .map_err(|err| AuthRejectReason::invalid_session_token(err.to_string()))?;
+            .map_err(|err| {
+                tracing::warn!("Invalid session token: {:?}", err);
+                err
+            })
+            .ok()?;
 
-        Ok(if let Some(reset_token) = token {
+        if let Some(reset_token) = token {
             tracing::trace!("Reset token");
-            AuthParts(cookies.add(auth_cookie(reset_token)), auth_user)
-        } else {
-            AuthParts(cookies, auth_user)
+            cookies.add(auth_cookie(reset_token));
+        }
+        Some(auth_user)
+    }
+
+    fn cookies_from_request(headers: &HeaderMap) -> impl Iterator<Item = Cookie<'static>> + '_ {
+        headers
+            .get_all(COOKIE)
+            .into_iter()
+            .filter_map(|value| value.to_str().ok())
+            .flat_map(|value| value.split(';'))
+            .filter_map(|cookie| Cookie::parse_encoded(cookie.to_owned()).ok())
+    }
+
+    fn cookies(headers: &HeaderMap) -> CookieJar {
+        let mut jar = CookieJar::new();
+        for cookie in Self::cookies_from_request(headers) {
+            jar.add_original(cookie);
+        }
+        jar
+    }
+
+    fn set_cookies(jar: CookieJar, headers: &mut HeaderMap) {
+        for cookie in jar.delta() {
+            if let Ok(header_value) = cookie.encoded().to_string().parse() {
+                headers.append(SET_COOKIE, header_value);
+            }
+        }
+    }
+}
+
+impl<State, Wrapped> Service<Request> for AuthService<State, Wrapped>
+where
+    State: Clone + Send + Sync + ValidatesIdentity + 'static,
+    Wrapped: Service<Request, Response = Response> + Clone + Send + 'static,
+    Wrapped::Future: Send + 'static,
+{
+    type Response = Wrapped::Response;
+    type Error = Wrapped::Error;
+    type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, mut req: Request) -> Self::Future {
+        let state = self.state.clone();
+        let mut inner = self.inner.clone();
+        Box::pin(async move {
+            let headers = req.headers();
+            let authorization = headers.get(AUTHORIZATION);
+            let mut cookies = Self::cookies(&headers);
+            let auth_parts = Self::authorize(&state, authorization, &mut cookies).await;
+            if let Some(auth_user) = auth_parts {
+                req.extensions_mut().insert(auth_user);
+            }
+            let mut response = inner.call(req).await?;
+            let headers = response.headers_mut();
+            Self::set_cookies(cookies, headers);
+            Ok(response)
         })
+    }
+}
+
+#[async_trait]
+impl<S> FromRequestParts<S> for AuthenticatedUser
+where
+    S: Send + Sync + ValidatesIdentity,
+{
+    type Rejection = StatusCode;
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        parts
+            .extensions
+            .get::<AuthenticatedUser>()
+            .cloned()
+            .ok_or(StatusCode::UNAUTHORIZED)
     }
 }
 
@@ -151,9 +245,9 @@ struct AuthQuery {
 async fn auth(
     session: Session,
     State(app): State<AppState>,
-    jar: CookieJar,
+    jar: AxumCookieJar,
     Query(query): Query<AuthQuery>,
-) -> Result<(CookieJar, Response), AuthRejectReason> {
+) -> Result<(AxumCookieJar, Response), AuthRejectReason> {
     let AuthQuery { code, state } = query;
     let code = AuthorizationCode::new(code);
 
@@ -227,25 +321,23 @@ fn parse_auth_cookie(cookie_str: &str) -> Result<OidcToken, AuthRejectReason> {
 
 async fn logout(
     session: Session,
-    jar: CookieJar,
+    jar: AxumCookieJar,
     State(app): State<AppState>,
-) -> Result<impl IntoResponse, AuthRejectReason> {
-    session
-        .delete()
-        .await
-        .map_err(|_| AuthRejectReason::invalid_session_token("Invalid session"))?;
+) -> Result<impl IntoResponse, StatusCode> {
+    session.delete().await.ok();
     let token = jar.get(AUTH_COOKIE);
     if let Some(token) = token {
-        let oidc_token = parse_auth_cookie(token.to_string().as_str())?;
+        let oidc_token = parse_auth_cookie(token.to_string().as_str())
+            .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
         let logout_url = app.idp.logout_oidc("/", &oidc_token);
         let uri = logout_url.as_str();
         Ok(Redirect::to(uri))
     } else {
-        Err(AuthRejectReason::invalid_credentials())
+        Err(StatusCode::UNAUTHORIZED)
     }
 }
 
-pub fn routes(app: AppState, store: MemoryStore) -> Router {
+pub fn routes(store: MemoryStore) -> Router<AppState> {
     let layer = SessionManagerLayer::new(store)
         .with_secure(false)
         .with_same_site(SameSite::Lax) // Ensure we send the cookie from the OAuth redirect.
@@ -255,5 +347,4 @@ pub fn routes(app: AppState, store: MemoryStore) -> Router {
         .route("/auth", get(auth))
         .route("/auth/logout", get(logout))
         .layer(layer)
-        .with_state(app)
 }

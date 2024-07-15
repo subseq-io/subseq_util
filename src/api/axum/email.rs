@@ -9,13 +9,12 @@ use axum::{
     routing::{post, put},
     Json, Router,
 };
-use axum_extra::extract::CookieJar;
 use email_address::EmailAddress;
 use serde::Deserialize;
 use serde_json::json;
 use std::str::FromStr;
 
-use super::{sessions::AuthParts, AnyhowError, AppState, RejectReason};
+use super::{super::AuthenticatedUser, AnyhowError, AppState, RejectReason};
 use crate::email::send_verification_email;
 
 #[derive(Deserialize)]
@@ -24,11 +23,10 @@ struct VerifyQuery {
 }
 
 async fn verify_email_handler<E: UnverifiedEmailTable, U: UserTable, UIT: UserIdTable>(
-    auth: AuthParts,
+    auth_user: AuthenticatedUser,
     Query(query): Query<VerifyQuery>,
     State(app): State<AppState>,
-) -> Result<(CookieJar, impl IntoResponse), RejectReason> {
-    let AuthParts(jar, auth_user) = auth;
+) -> Result<impl IntoResponse, RejectReason> {
     let mut conn = app.db_pool.get().await.map_err(RejectReason::pool_error)?;
 
     let user = U::get(&mut conn, auth_user.id())
@@ -52,12 +50,9 @@ async fn verify_email_handler<E: UnverifiedEmailTable, U: UserTable, UIT: UserId
                     user.email()
                 );
                 return Ok((
-                    jar,
-                    (
-                        StatusCode::FORBIDDEN,
-                        [(header::CONTENT_TYPE, "application/json")],
-                        serde_json::to_string(&json!({"message": "denied"})).expect("valid json"),
-                    ),
+                    StatusCode::FORBIDDEN,
+                    [(header::CONTENT_TYPE, "application/json")],
+                    serde_json::to_string(&json!({"message": "denied"})).expect("valid json"),
                 ));
             }
             let mut user_id_account =
@@ -72,21 +67,15 @@ async fn verify_email_handler<E: UnverifiedEmailTable, U: UserTable, UIT: UserId
                 .map_err(RejectReason::database_error)?;
 
             Ok((
-                jar,
-                (
-                    StatusCode::OK,
-                    [(header::CONTENT_TYPE, "application/json")],
-                    serde_json::to_string(&json!({"message": "verified"})).expect("valid json"),
-                ),
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, "application/json")],
+                serde_json::to_string(&json!({"message": "verified"})).expect("valid json"),
             ))
         }
         EmailVerification::Denied => Ok((
-            jar,
-            (
-                StatusCode::FORBIDDEN,
-                [(header::CONTENT_TYPE, "application/json")],
-                serde_json::to_string(&json!({"message": "denied"})).expect("valid json"),
-            ),
+            StatusCode::FORBIDDEN,
+            [(header::CONTENT_TYPE, "application/json")],
+            serde_json::to_string(&json!({"message": "denied"})).expect("valid json"),
         )),
     }
 }
@@ -97,17 +86,16 @@ async fn resend_email_handler<
     T: EmailTemplate + Sync + 'static,
     U: UserTable,
 >(
-    auth: AuthParts,
+    auth_user: AuthenticatedUser,
     State(app): State<AppState>,
-) -> Result<(CookieJar, Response), RejectReason> {
-    let AuthParts(jar, auth_user) = auth;
+) -> Result<Response, RejectReason> {
     let mut conn = app.db_pool.get().await.map_err(RejectReason::pool_error)?;
     let user = U::get(&mut conn, auth_user.id())
         .await
         .ok_or_else(|| RejectReason::not_found(format!("UserTable {}", auth_user.id())))?;
     let builder = match B::new(&mut conn, &user).await {
         Ok(builder) => builder,
-        Err(e) => return Ok((jar, AnyhowError::from(e).into_response())),
+        Err(e) => return Ok(AnyhowError::from(e).into_response()),
     };
     let email = EmailAddress::from_str(&user.email())
         .map_err(|_| RejectReason::bad_request(format!("Invalid user email: {}", user.email())))?;
@@ -116,9 +104,9 @@ async fn resend_email_handler<
         send_verification_email::<E, B, T, U>(&mut conn, &app.base_url, email, builder, email_tx)
             .await
     {
-        return Ok((jar, AnyhowError::from(anyerr).into_response()));
+        return Ok(AnyhowError::from(anyerr).into_response());
     }
-    Ok((jar, Json(&json!({"message": "resent"})).into_response()))
+    Ok(Json(&json!({"message": "resent"})).into_response())
 }
 
 pub fn routes<
@@ -127,11 +115,8 @@ pub fn routes<
     T: EmailTemplate + Send + Sync + 'static,
     U: UserTable + 'static,
     EIT: UserIdTable + 'static,
->(
-    app: AppState,
-) -> Router {
+>() -> Router<AppState> {
     Router::new()
         .route("/email/verify", post(verify_email_handler::<E, U, EIT>))
         .route("/email/verify", put(resend_email_handler::<E, B, T, U>))
-        .with_state(app)
 }
