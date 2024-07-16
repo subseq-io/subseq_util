@@ -173,7 +173,9 @@ where
 
     fn call(&mut self, mut req: Request<Incoming>) -> Self::Future {
         let state = self.state.clone();
-        let mut inner = self.inner.clone();
+        let clone = self.inner.clone();
+        // https://docs.rs/tower/latest/tower/trait.Service.html#be-careful-when-cloning-inner-services
+        let mut inner = std::mem::replace(&mut self.inner, clone);
         Box::pin(async move {
             let headers = req.headers();
             let authorization = headers.get(AUTHORIZATION);
