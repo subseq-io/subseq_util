@@ -10,17 +10,27 @@ pub trait EnvFilledConfig: Sized {
 
 #[derive(Deserialize)]
 pub struct TlsConfig {
-    pub cert_path: String,
-    pub key_path: String,
-    pub ca_path: Option<String>,
+    pub cert_path: PathBuf,
+    pub key_path: PathBuf,
+    pub ca_path: Option<PathBuf>,
+}
+
+fn fill_from_env(env_var: &str, default: PathBuf) -> PathBuf {
+    match env::var(env_var) {
+        Ok(path) => PathBuf::from(path),
+        Err(_) => default,
+    }
 }
 
 impl EnvFilledConfig for TlsConfig {
     fn fill_from_env(self) -> Result<Self, env::VarError> {
         Ok(Self {
-            cert_path: env::var("SERVER_TLS_CERT").unwrap_or(self.cert_path),
-            key_path: env::var("SERVER_TLS_KEY").unwrap_or(self.key_path),
-            ca_path: env::var("SERVER_TLS_CA").ok().or(self.ca_path),
+            cert_path: fill_from_env("SERVER_TLS_CERT", self.cert_path),
+            key_path: fill_from_env("SERVER_TLS_KEY", self.key_path),
+            ca_path: match env::var("SERVER_TLS_CA").ok() {
+                Some(path) => Some(PathBuf::from(path)),
+                None => self.ca_path,
+            },
         })
     }
 }

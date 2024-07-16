@@ -1,5 +1,6 @@
 use chrono::NaiveDateTime;
 use diesel::prelude::*;
+use diesel_async::AsyncPgConnection;
 use email_address::EmailAddress;
 use rand::{thread_rng, Rng};
 use sha2::{Digest, Sha256};
@@ -15,30 +16,31 @@ pub enum EmailVerification {
     Denied,
 }
 
-pub trait UnverifiedEmailTable: Sized + Clone {
-    fn create(conn: &mut PgConnection, email: &EmailAddress, base_url: &str)
-        -> QueryResult<String>;
-    fn get_pending_verification(conn: &mut PgConnection, verifier: &str) -> QueryResult<Self>;
+pub trait UnverifiedEmailTable: Sized + Clone + Send {
+    fn create(
+        conn: &mut AsyncPgConnection,
+        email: &EmailAddress,
+        base_url: &str,
+    ) -> impl std::future::Future<Output = QueryResult<String>> + Send;
+    fn get_pending_verification(
+        conn: &mut AsyncPgConnection,
+        verifier: &str,
+    ) -> impl std::future::Future<Output = QueryResult<Self>> + Send;
     fn expires(&self) -> NaiveDateTime;
     fn is_valid(&self) -> bool {
         chrono::Utc::now().naive_utc() <= self.expires()
     }
     fn inspect_pending_verification(
         self,
-        conn: &mut PgConnection,
-    ) -> QueryResult<EmailVerification>;
+        conn: &mut AsyncPgConnection,
+    ) -> impl std::future::Future<Output = QueryResult<EmailVerification>> + Send;
 }
 
 #[allow(clippy::crate_in_macro_def)]
 #[macro_export]
-/// Create the email table in your project from your crate's schema (we do this because diesel
-/// macro rules because in the schema we'll get an error if we try to use the schema from another
-/// crate)
-/// minutes: The number of minutes the verification link is valid for
-/// link_uri_fmt: The format string for the link URI, which should contain a slot for both the
-///               token and the base URL
-macro_rules! create_email_table {
+macro_rules! create_async_email_table {
     ($minutes:literal, $link_uri_fmt:tt) => {
+        use diesel_async::{AsyncPgConnection, RunQueryDsl};
         const MINUTES_VERIFICATION_VALID: chrono::Duration = chrono::Duration::minutes($minutes);
 
         #[derive(PartialEq, Queryable, Insertable, Clone, Debug)]
@@ -51,9 +53,8 @@ macro_rules! create_email_table {
         }
 
         impl UnverifiedEmailTable for PendingEmailVerification {
-            /// The base URL should be the web address up to and including the trailing slash
-            fn create(
-                conn: &mut PgConnection,
+            async fn create(
+                conn: &mut AsyncPgConnection,
                 email: &EmailAddress,
                 base_url: &str,
             ) -> QueryResult<String> {
@@ -68,12 +69,13 @@ macro_rules! create_email_table {
                 };
                 diesel::insert_into(pending::pending_email_verifications)
                     .values(&row)
-                    .execute(conn)?;
+                    .execute(conn)
+                    .await?;
                 Ok(format!($link_uri_fmt, base_url, row.id))
             }
 
-            fn get_pending_verification(
-                conn: &mut PgConnection,
+            async fn get_pending_verification(
+                conn: &mut AsyncPgConnection,
                 verifier: &str,
             ) -> QueryResult<Self> {
                 use crate::schema::auth::pending_email_verifications::dsl as pending;
@@ -81,15 +83,16 @@ macro_rules! create_email_table {
                 pending::pending_email_verifications
                     .filter(pending::id.eq(&verifier))
                     .first::<PendingEmailVerification>(conn)
+                    .await
             }
 
             fn expires(&self) -> NaiveDateTime {
                 self.expires
             }
 
-            fn inspect_pending_verification(
+            async fn inspect_pending_verification(
                 self,
-                conn: &mut PgConnection,
+                conn: &mut AsyncPgConnection,
             ) -> QueryResult<EmailVerification> {
                 use crate::schema::auth::pending_email_verifications::dsl as pending;
 
@@ -97,7 +100,8 @@ macro_rules! create_email_table {
                     diesel::delete(
                         pending::pending_email_verifications.filter(pending::id.eq(self.id)),
                     )
-                    .execute(conn)?;
+                    .execute(conn)
+                    .await?;
                     EmailVerification::Accepted(
                         EmailAddress::from_str(&self.email).expect("valid email"),
                     )
@@ -105,7 +109,8 @@ macro_rules! create_email_table {
                     diesel::delete(
                         pending::pending_email_verifications.filter(pending::id.eq(self.id)),
                     )
-                    .execute(conn)?;
+                    .execute(conn)
+                    .await?;
                     EmailVerification::Denied
                 })
             }
@@ -122,9 +127,9 @@ mod test {
     use url::Url;
 
     use super::*;
-    use crate::tables::harness::{list_tables, to_pg_db_name, DbHarness};
-
-    create_email_table!(1, "{}app/verify_email?token={}");
+    use crate::tables::harness::list_tables;
+    use crate::tables::harness::{to_pg_db_name, DbHarness};
+    use crate::tables::{gen_rand_string, EmailVerification};
 
     fn extract_token_from_uri(uri: &str) -> Option<String> {
         let url = Url::parse(uri).ok()?;
@@ -137,29 +142,34 @@ mod test {
         None
     }
 
-    #[test]
-    #[named]
-    fn test_email_verifier() {
-        let db_name = to_pg_db_name(function_name!());
-        let harness = DbHarness::new("localhost", "development", &db_name, None);
-        let mut conn = harness.conn();
+    create_async_email_table!(1, "{}app/verify_email?token={}");
 
-        for table_name in list_tables(&mut conn).expect("Tables not retrieved") {
+    #[tokio::test]
+    #[named]
+    async fn test_async_email_verifier() {
+        let db_name = to_pg_db_name(function_name!());
+        let harness = DbHarness::new("localhost", "development", &db_name, None).await;
+        let mut conn = harness.conn().await;
+
+        for table_name in list_tables(&mut conn).await.expect("Tables not retrieved") {
             eprintln!("Table: {:?}", table_name);
         }
 
         let email = EmailAddress::from_str("test@example.com").expect("valid email");
         let verifier = PendingEmailVerification::create(&mut conn, &email, "https://localhost/")
+            .await
             .expect("created pending");
         assert!(verifier.starts_with("https://localhost/app/verify_email?token="));
-        let token = extract_token_from_uri(&verifier).expect("token found");
 
+        let token = extract_token_from_uri(&verifier).expect("token found");
         let fetched = PendingEmailVerification::get_pending_verification(&mut conn, &token)
+            .await
             .expect("verifier should be found");
 
         assert!(fetched.is_valid());
         let accepted = fetched
             .inspect_pending_verification(&mut conn)
+            .await
             .expect("delete success");
 
         match accepted {

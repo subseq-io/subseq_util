@@ -1,30 +1,171 @@
-use std::convert::Infallible;
-use std::string::ToString;
-use std::sync::Arc;
-
-use reqwest::header::{HeaderMap, HeaderValue};
-use serde_json::json;
-use tokio::sync::broadcast;
+use anyhow::{anyhow, Context, Result as AnyResult};
+use email_address::EmailAddress;
+use openidconnect::core::CoreIdTokenClaims;
 use uuid::Uuid;
-use warp::{http::StatusCode, Filter, Rejection, Reply};
-use warp_sessions::MemoryStore;
 
-pub mod email;
-pub mod sessions;
+use crate::oidc::OidcToken;
+use crate::tables::users::UserId;
 
-use self::sessions::AuthRejectReason;
-pub use self::sessions::{authenticate, AuthenticatedUser};
+#[cfg(feature = "axum")]
+mod axum;
+
+#[cfg(feature = "warp")]
+mod warp;
+
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum AuthRejectReason {
+    OidcError { msg: &'static str },
+    CsrfMismatch,
+    TokenTransferFailed { msg: String },
+    InvalidCredentials,
+    InvalidSessionToken { reason: String },
+    NoSessionToken,
+}
+
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub struct AuthenticatedUser {
+    pub(super) id: Uuid,
+
+    pub(super) username: String,
+    pub(super) email: String,
+    pub(super) email_verified: bool,
+    pub(super) given_name: Option<String>,
+    pub(super) family_name: Option<String>,
+}
+
+pub trait ValidatesIdentity {
+    fn validate_token(&self, token: &OidcToken) -> anyhow::Result<CoreIdTokenClaims>;
+    fn refresh_token(
+        &self,
+        token: OidcToken,
+    ) -> impl std::future::Future<Output = anyhow::Result<OidcToken>> + std::marker::Send;
+}
+
+impl AuthenticatedUser {
+    pub async fn validate_session<S: ValidatesIdentity>(
+        idp: &S,
+        token: OidcToken,
+    ) -> AnyResult<(Self, Option<OidcToken>)> {
+        let (claims, token) = match idp.validate_token(&token) {
+            Ok(claims) => (claims, None),
+            Err(_) => {
+                // Try to refresh
+                tracing::trace!("Refresh happening");
+                let token = idp.refresh_token(token).await.context("token refresh")?;
+                tracing::trace!("Refresh complete");
+                (
+                    idp.validate_token(&token).context("validate_token")?,
+                    Some(token),
+                )
+            }
+        };
+        tracing::trace!("Claims");
+        let user_id =
+            Uuid::parse_str(claims.subject().as_str()).context("UUID claims.subject()")?;
+        let user_name = claims
+            .preferred_username()
+            .ok_or_else(|| anyhow!("No username in claims"))?
+            .as_str();
+        let user_email = claims
+            .email()
+            .map(|email| email.as_str())
+            .or_else(|| {
+                if EmailAddress::is_valid(user_name) {
+                    Some(user_name)
+                } else {
+                    None
+                }
+            })
+            .ok_or_else(|| anyhow!("No email in claims"))?;
+        let email_verified = claims.email_verified().unwrap_or(false);
+        let given_name = claims
+            .given_name()
+            .and_then(|name| name.get(None).map(|name| name.to_string()));
+        let family_name = claims
+            .family_name()
+            .and_then(|name| name.get(None).map(|name| name.to_string()));
+
+        tracing::trace!("Token validated");
+        Ok((
+            Self {
+                id: user_id,
+                username: user_name.to_string(),
+                email: user_email.to_string(),
+                email_verified,
+                given_name,
+                family_name,
+            },
+            token,
+        ))
+    }
+
+    pub fn id(&self) -> UserId {
+        UserId(self.id)
+    }
+
+    pub fn username(&self) -> String {
+        self.username.clone()
+    }
+
+    pub fn email(&self) -> String {
+        self.email.clone()
+    }
+
+    pub fn email_verified(&self) -> bool {
+        self.email_verified
+    }
+
+    pub fn given_name(&self) -> Option<String> {
+        self.given_name.clone()
+    }
+
+    pub fn family_name(&self) -> Option<String> {
+        self.family_name.clone()
+    }
+}
+
+#[cfg(any(feature = "warp", feature = "axum"))]
+pub mod sessions {
+    #[cfg(feature = "warp")]
+    pub use super::warp::sessions::*;
+
+    #[cfg(feature = "warp")]
+    impl warp::reject::Reject for super::AuthRejectReason {}
+
+    #[cfg(feature = "axum")]
+    pub use super::axum::sessions::*;
+}
+
+#[cfg(feature = "warp")]
+pub use self::sessions::authenticate;
+
+#[cfg(any(feature = "warp", feature = "axum"))]
+pub mod email {
+    #[cfg(feature = "warp")]
+    pub use super::warp::email::*;
+
+    #[cfg(feature = "axum")]
+    pub use super::axum::email::*;
+}
 
 #[derive(Debug)]
 pub struct AnyhowError {
     pub error: anyhow::Error,
 }
+
 impl From<anyhow::Error> for AnyhowError {
     fn from(error: anyhow::Error) -> Self {
         Self { error }
     }
 }
-impl warp::reject::Reject for AnyhowError {}
+
+impl From<AnyhowError> for String {
+    fn from(anyerr: AnyhowError) -> String {
+        anyerr.error.to_string()
+    }
+}
 
 #[derive(Debug)]
 #[non_exhaustive]
@@ -32,292 +173,60 @@ pub enum RejectReason {
     BadRequest { reason: String },
     Conflict { resource: String },
     DatabaseError { msg: String },
-    Forbidden { user_id: Uuid, reason: String },
+    Forbidden { user_id: UserId, reason: String },
     MissingEnvKey { key: String },
     NotFound { resource: String },
     Session,
 }
-impl warp::reject::Reject for RejectReason {}
-impl RejectReason {
-    fn into_rejection(self) -> Rejection {
-        warp::reject::custom(self)
-    }
 
-    pub fn bad_request<S: Into<String>>(reason: S) -> Rejection {
+impl RejectReason {
+    pub fn bad_request<S: Into<String>>(reason: S) -> Self {
         RejectReason::BadRequest {
             reason: reason.into(),
         }
-        .into_rejection()
     }
 
-    pub fn conflict<S: Into<String>>(resource: S) -> Rejection {
+    pub fn conflict<S: Into<String>>(resource: S) -> Self {
         RejectReason::Conflict {
             resource: resource.into(),
         }
-        .into_rejection()
     }
 
-    #[cfg(feature = "diesel-async")]
-    pub fn async_error(
-        err: bb8::RunError<diesel_async::pooled_connection::PoolError>,
-    ) -> Rejection {
+    pub fn pool_error(err: bb8::RunError<diesel_async::pooled_connection::PoolError>) -> Self {
         RejectReason::DatabaseError {
             msg: format!("pool {}", err),
         }
-        .into_rejection()
     }
-
-    pub fn pool_error(err: r2d2::Error) -> Rejection {
-        RejectReason::DatabaseError {
-            msg: format!("pool {}", err),
-        }
-        .into_rejection()
-    }
-
-    pub fn database_error(err: diesel::result::Error) -> Rejection {
+    pub fn database_error(err: diesel::result::Error) -> Self {
         RejectReason::DatabaseError {
             msg: format!("database {}", err),
         }
-        .into_rejection()
     }
 
-    pub fn forbidden<S: Into<String>>(user_id: Uuid, reason: S) -> Rejection {
+    pub fn forbidden<S: Into<String>>(user_id: UserId, reason: S) -> Self {
         RejectReason::Forbidden {
             user_id,
             reason: reason.into(),
         }
-        .into_rejection()
     }
 
-    pub fn missing_env_key<S: Into<String>>(key: S) -> Rejection {
-        RejectReason::MissingEnvKey { key: key.into() }.into_rejection()
+    pub fn missing_env_key<S: Into<String>>(key: S) -> Self {
+        RejectReason::MissingEnvKey { key: key.into() }
     }
 
-    pub fn not_found<S: Into<String>>(resource: S) -> Rejection {
+    pub fn not_found<S: Into<String>>(resource: S) -> Self {
         RejectReason::NotFound {
             resource: resource.into(),
         }
-        .into_rejection()
     }
 
-    pub fn session() -> Rejection {
-        RejectReason::Session.into_rejection()
+    pub fn session() -> Self {
+        RejectReason::Session
     }
 }
 
-// Deprecated errors (too many snowflakes)
-#[derive(Debug)]
-#[deprecated(
-    since = "0.4.0",
-    note = "please use AnyhowError or RejectReason instead, will be removed in 0.5.0"
-)]
-pub struct ConflictError {}
-impl warp::reject::Reject for ConflictError {}
+#[cfg(feature = "axum")]
+pub use axum::AppState;
 
-#[derive(Debug)]
-#[deprecated(
-    since = "0.4.0",
-    note = "please use AnyhowError or RejectReason instead, will be removed in 0.5.0"
-)]
-pub struct DatabaseError {
-    pub msg: String,
-}
-impl DatabaseError {
-    pub fn new(msg: String) -> Self {
-        Self { msg }
-    }
-}
-impl warp::reject::Reject for DatabaseError {}
-
-#[derive(Debug)]
-#[deprecated(
-    since = "0.4.0",
-    note = "please use AnyhowError or RejectReason instead, will be removed in 0.5.0"
-)]
-pub struct MissingEnvKey {
-    pub key: String,
-}
-impl warp::reject::Reject for MissingEnvKey {}
-
-#[derive(Debug)]
-#[deprecated(
-    since = "0.4.0",
-    note = "please use AnyhowError or RejectReason instead, will be removed in 0.5.0"
-)]
-pub struct NotFoundError {}
-impl warp::reject::Reject for NotFoundError {}
-
-#[derive(Debug)]
-#[deprecated(
-    since = "0.4.0",
-    note = "please use AnyhowError or RejectReason instead, will be removed in 0.5.0"
-)]
-pub struct ForbiddenError {}
-impl warp::reject::Reject for ForbiddenError {}
-
-#[derive(Debug)]
-#[deprecated(
-    since = "0.4.0",
-    note = "please use AnyhowError or RejectReason instead, will be removed in 0.5.0"
-)]
-pub struct ParseError {}
-impl warp::reject::Reject for ParseError {}
-
-#[derive(Debug)]
-#[deprecated(
-    since = "0.4.0",
-    note = "please use AnyhowError or RejectReason instead, will be removed in 0.5.0"
-)]
-pub struct InvalidConfigurationError {}
-impl warp::reject::Reject for InvalidConfigurationError {}
-
-use crate::tables::DbPool;
-pub fn with_db(
-    pool: Arc<DbPool>,
-) -> impl Filter<Extract = (Arc<DbPool>,), Error = std::convert::Infallible> + Clone {
-    warp::any().map(move || pool.clone())
-}
-
-pub fn init_session_store() -> MemoryStore {
-    MemoryStore::new()
-}
-
-pub fn with_string<S: Send + Sync + Clone + ToString>(
-    string: S,
-) -> impl Filter<Extract = (String,), Error = std::convert::Infallible> + Clone {
-    warp::any().map(move || string.to_string())
-}
-
-pub fn with_broadcast<M: Send + Sync + Clone + 'static>(
-    sender: broadcast::Sender<M>,
-) -> impl Filter<Extract = (broadcast::Sender<M>,), Error = Infallible> + Clone {
-    warp::any().map(move || sender.clone())
-}
-
-pub async fn handle_rejection(
-    err: warp::reject::Rejection,
-) -> Result<Box<dyn warp::Reply>, std::convert::Infallible> {
-    if err.is_not_found() {
-        return Ok(Box::new(warp::reply::with_status(
-            "NOT_FOUND",
-            StatusCode::NOT_FOUND,
-        )));
-    }
-
-    if let Some(auth_err) = err.find::<AuthRejectReason>() {
-        match auth_err {
-            AuthRejectReason::NoSessionToken => {
-                let auth_path = warp::http::Uri::try_from("/auth/login").expect("uri failed");
-                let mut no_cache_headers = HeaderMap::new();
-                no_cache_headers.append(
-                    "Cache-Control",
-                    HeaderValue::from_str("no-store, must-revalidate")
-                        .expect("Invalid header value"),
-                );
-                no_cache_headers.append(
-                    "Expires",
-                    HeaderValue::from_str("0").expect("Invalid header value"),
-                );
-
-                let reply = warp::redirect(auth_path);
-                let mut response = reply.into_response();
-                let headers = response.headers_mut();
-                headers.extend(no_cache_headers);
-
-                return Ok(Box::new(response));
-            }
-            AuthRejectReason::InvalidSessionToken { reason } => {
-                tracing::error!("InvalidSessionToken: {}", reason);
-                let json = warp::reply::json(&"Unauthorized");
-                let response = warp::reply::with_status(json, warp::http::StatusCode::UNAUTHORIZED);
-                return Ok(Box::new(response));
-            }
-            AuthRejectReason::OidcError { msg } => {
-                tracing::error!("OidcError: {}", msg);
-                let json = warp::reply::json(&"OIDC Configuration Error");
-                let response =
-                    warp::reply::with_status(json, warp::http::StatusCode::INTERNAL_SERVER_ERROR);
-                return Ok(Box::new(response));
-            }
-            AuthRejectReason::CsrfMismatch => {
-                tracing::error!("CSRF Mismatch!");
-                let json = warp::reply::json(&"OIDC Configuration Error");
-                let response = warp::reply::with_status(json, warp::http::StatusCode::FORBIDDEN);
-                return Ok(Box::new(response));
-            }
-            AuthRejectReason::TokenTransferFailed { msg } => {
-                tracing::error!("IdP is in down or degraded state! {}", msg);
-                let json = warp::reply::json(&"Error communicating with identity provider");
-                let response = warp::reply::with_status(json, warp::http::StatusCode::BAD_GATEWAY);
-                return Ok(Box::new(response));
-            }
-            AuthRejectReason::InvalidCredentials => {
-                let json = warp::reply::json(&"Invalid form of authorization");
-                let response = warp::reply::with_status(json, warp::http::StatusCode::FORBIDDEN);
-                return Ok(Box::new(response));
-            }
-        }
-    }
-
-    if let Some(anyhow_err) = err.find::<AnyhowError>() {
-        tracing::error!("{:?}", anyhow_err.error);
-        let json = warp::reply::json(&json!({"error": anyhow_err.error.to_string()}));
-        let response =
-            warp::reply::with_status(json, warp::http::StatusCode::INTERNAL_SERVER_ERROR);
-        return Ok(Box::new(response));
-    }
-
-    if let Some(err) = err.find::<RejectReason>() {
-        match err {
-            RejectReason::BadRequest { reason } => {
-                let json = warp::reply::json(&json!({"rejected": reason}));
-                let response = warp::reply::with_status(json, warp::http::StatusCode::BAD_REQUEST);
-                return Ok(Box::new(response));
-            }
-            RejectReason::Conflict { resource } => {
-                let json = warp::reply::json(&json!({"conflict": resource}));
-                let response = warp::reply::with_status(json, warp::http::StatusCode::CONFLICT);
-                return Ok(Box::new(response));
-            }
-            RejectReason::DatabaseError { msg } => {
-                tracing::error!("Database error: {}", msg);
-                let json = warp::reply::json(&json!({"rejected": msg}));
-                let response =
-                    warp::reply::with_status(json, warp::http::StatusCode::INTERNAL_SERVER_ERROR);
-                return Ok(Box::new(response));
-            }
-            RejectReason::Forbidden { user_id, reason } => {
-                tracing::error!("Forbidden {}: {}", user_id, reason);
-                let json = warp::reply::json(&json!({"rejected": "forbidden"}));
-                let response = warp::reply::with_status(json, warp::http::StatusCode::FORBIDDEN);
-                return Ok(Box::new(response));
-            }
-            RejectReason::NotFound { resource } => {
-                let json = warp::reply::json(&json!({"missing": resource}));
-                let response = warp::reply::with_status(json, warp::http::StatusCode::NOT_FOUND);
-                return Ok(Box::new(response));
-            }
-            RejectReason::MissingEnvKey { key } => {
-                tracing::error!("Missing Environment Key: {}", key);
-                let json = warp::reply::json(&json!({"error": "Server misconfiguration error"}));
-                let response =
-                    warp::reply::with_status(json, warp::http::StatusCode::INTERNAL_SERVER_ERROR);
-                return Ok(Box::new(response));
-            }
-            RejectReason::Session => {
-                tracing::error!("Session error");
-                let json = warp::reply::json(&json!({"error": "Server misconfiguration error"}));
-                let response =
-                    warp::reply::with_status(json, warp::http::StatusCode::INTERNAL_SERVER_ERROR);
-                return Ok(Box::new(response));
-            }
-        }
-    }
-
-    tracing::error!("Unhandled Error: {:?}", err);
-    let json = warp::reply::json(&"Unhandled error");
-    Ok(Box::new(warp::reply::with_status(
-        json,
-        warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-    )))
-}
+#[cfg(feature = "warp")]
+pub use warp::{handle_rejection, init_session_store, with_broadcast, with_db, with_string};

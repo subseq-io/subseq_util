@@ -2,21 +2,39 @@ use std::future::Future;
 use std::path::PathBuf;
 
 use anyhow::Result;
-use diesel::PgConnection;
-#[cfg(feature = "diesel-async")]
 use diesel_async::AsyncPgConnection;
 use email_address::EmailAddress;
 use handlebars::{DirectorySourceOptions, Handlebars};
 use serde::Serialize;
 use tokio::sync::broadcast;
-use warp::reject::Rejection;
 
-#[cfg(feature = "diesel-async")]
-use crate::async_tables::AsyncUserTable;
 use crate::{
     rate_limit::{rate_limited_channel, RateLimitProfile, RateLimitedReceiver},
-    tables::UserTable,
+    tables::{UnverifiedEmailTable, UserTable},
 };
+
+pub async fn send_verification_email<E, B, T, U>(
+    conn: &mut AsyncPgConnection,
+    base_url: &str,
+    to_address: EmailAddress,
+    builder: B,
+    email_tx: broadcast::Sender<ScheduledEmail<T>>,
+) -> anyhow::Result<()>
+where
+    E: UnverifiedEmailTable,
+    B: EmailTemplateBuilder<T, U>,
+    T: EmailTemplate,
+    U: UserTable,
+{
+    let email_link = E::create(conn, &to_address, base_url).await?;
+    let template = builder.unique_link(&email_link).build()?;
+    let email = ScheduledEmail {
+        to: to_address,
+        template,
+    };
+    email_tx.send(email).ok();
+    Ok(())
+}
 
 /// Intended to be used with an HTML-based template.
 /// I use Maizzle for this.
@@ -65,23 +83,10 @@ where
     Template: EmailTemplate,
     User: UserTable,
 {
-    fn new(conn: &mut PgConnection, user: &User) -> Result<Self, Rejection>;
-    /// Include in the template a unique link back to the server.
-    fn unique_link(self, link: &str) -> Self;
-    fn subject(self, subject: &str) -> Self;
-    fn build(self) -> anyhow::Result<Template>;
-}
-
-#[cfg(feature = "diesel-async")]
-pub trait AsyncEmailTemplateBuilder<Template, User>: Sized
-where
-    Template: EmailTemplate,
-    User: AsyncUserTable,
-{
     fn new(
         conn: &mut AsyncPgConnection,
         user: &User,
-    ) -> impl std::future::Future<Output = Result<Self, Rejection>> + Send;
+    ) -> impl std::future::Future<Output = anyhow::Result<Self>> + Send;
     fn unique_link(self, link: &str) -> Self;
     fn subject(self, subject: &str) -> Self;
     fn build(self) -> anyhow::Result<Template>;

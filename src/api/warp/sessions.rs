@@ -1,11 +1,9 @@
 use std::string::ToString;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Context, Result as AnyResult};
 use cookie::{Cookie, SameSite};
-use email_address::EmailAddress;
 use lazy_static::lazy_static;
-use openidconnect::{AuthorizationCode, Nonce, PkceCodeVerifier};
+use openidconnect::{core::CoreIdTokenClaims, AuthorizationCode, Nonce, PkceCodeVerifier};
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 use urlencoding::decode;
@@ -19,114 +17,8 @@ use warp_sessions::{
 use crate::oidc::{IdentityProvider, OidcToken};
 
 use super::{AnyhowError, RejectReason};
+use crate::api::{AuthRejectReason, AuthenticatedUser, ValidatesIdentity};
 
-#[derive(Clone, Debug)]
-#[non_exhaustive]
-pub struct AuthenticatedUser {
-    id: Uuid,
-
-    username: String,
-    email: String,
-    email_verified: bool,
-    given_name: Option<String>,
-    family_name: Option<String>,
-}
-
-impl AuthenticatedUser {
-    pub async fn validate_session(
-        idp: Arc<IdentityProvider>,
-        token: OidcToken,
-    ) -> AnyResult<(Self, Option<OidcToken>)> {
-        let (claims, token) = match idp.validate_token(&token) {
-            Ok(claims) => (claims, None),
-            Err(_) => {
-                // Try to refresh
-                tracing::trace!("Refresh happening");
-                let token = idp.refresh(token).await.context("token refresh")?;
-                tracing::trace!("Refresh complete");
-                (
-                    idp.validate_token(&token).context("validate_token")?,
-                    Some(token),
-                )
-            }
-        };
-        tracing::trace!("Claims");
-        let user_id =
-            Uuid::parse_str(claims.subject().as_str()).context("UUID claims.subject()")?;
-        let user_name = claims
-            .preferred_username()
-            .ok_or_else(|| anyhow!("No username in claims"))?
-            .as_str();
-        let user_email = claims
-            .email()
-            .map(|email| email.as_str())
-            .or_else(|| {
-                if EmailAddress::is_valid(user_name) {
-                    Some(user_name)
-                } else {
-                    None
-                }
-            })
-            .ok_or_else(|| anyhow!("No email in claims"))?;
-        let email_verified = claims.email_verified().unwrap_or(false);
-        let given_name = claims
-            .given_name()
-            .and_then(|name| name.get(None).map(|name| name.to_string()));
-        let family_name = claims
-            .family_name()
-            .and_then(|name| name.get(None).map(|name| name.to_string()));
-
-        tracing::trace!("Token validated");
-        Ok((
-            Self {
-                id: user_id,
-                username: user_name.to_string(),
-                email: user_email.to_string(),
-                email_verified,
-                given_name,
-                family_name,
-            },
-            token,
-        ))
-    }
-
-    pub fn id(&self) -> Uuid {
-        self.id
-    }
-
-    pub fn username(&self) -> String {
-        self.username.clone()
-    }
-
-    pub fn email(&self) -> String {
-        self.email.clone()
-    }
-
-    pub fn email_verified(&self) -> bool {
-        self.email_verified
-    }
-
-    pub fn given_name(&self) -> Option<String> {
-        self.given_name.clone()
-    }
-
-    pub fn family_name(&self) -> Option<String> {
-        self.family_name.clone()
-    }
-}
-
-#[derive(Debug)]
-#[non_exhaustive]
-pub enum AuthRejectReason {
-    OidcError { msg: &'static str },
-    CsrfMismatch,
-    TokenTransferFailed { msg: String },
-    InvalidCredentials,
-    InvalidSessionToken { reason: String },
-    NoSessionToken,
-}
-
-impl warp::reject::Reject for AuthRejectReason {}
 impl AuthRejectReason {
     fn into_rejection(self) -> Rejection {
         warp::reject::custom(self)
@@ -156,74 +48,6 @@ impl AuthRejectReason {
         AuthRejectReason::NoSessionToken.into_rejection()
     }
 }
-
-#[derive(Debug)]
-#[deprecated(
-    since = "0.4.0",
-    note = "please use RejectReason instead, will be removed in 0.5.0"
-)]
-pub struct SessionsError;
-impl warp::reject::Reject for SessionsError {}
-
-#[derive(Debug)]
-#[deprecated(
-    since = "0.4.0",
-    note = "please use RejectReason instead, will be removed in 0.5.0"
-)]
-pub struct UrlError;
-impl warp::reject::Reject for UrlError {}
-
-#[derive(Debug)]
-#[deprecated(
-    since = "0.4.0",
-    note = "please use AuthRejectReason instead, will be removed in 0.5.0"
-)]
-pub struct OidcError {
-    pub msg: &'static str,
-}
-impl warp::reject::Reject for OidcError {}
-
-#[derive(Debug)]
-#[deprecated(
-    since = "0.4.0",
-    note = "please use AuthRejectReason instead, will be removed in 0.5.0"
-)]
-pub struct CsrfMismatch;
-impl warp::reject::Reject for CsrfMismatch {}
-
-#[derive(Debug)]
-#[deprecated(
-    since = "0.4.0",
-    note = "please use AuthRejectReason instead, will be removed in 0.5.0"
-)]
-pub struct TokenTransferFailed {
-    pub msg: String,
-}
-impl warp::reject::Reject for TokenTransferFailed {}
-
-#[derive(Debug)]
-#[deprecated(
-    since = "0.4.0",
-    note = "please use AuthRejectReason instead, will be removed in 0.5.0"
-)]
-pub struct InvalidCredentials;
-impl warp::reject::Reject for InvalidCredentials {}
-
-#[derive(Debug)]
-#[deprecated(
-    since = "0.4.0",
-    note = "please use AuthRejectReason instead, will be removed in 0.5.0"
-)]
-pub struct InvalidSessionToken;
-impl warp::reject::Reject for InvalidSessionToken {}
-
-#[derive(Debug)]
-#[deprecated(
-    since = "0.4.0",
-    note = "please use AuthRejectReason instead, will be removed in 0.5.0"
-)]
-pub struct NoSessionToken {}
-impl warp::reject::Reject for NoSessionToken {}
 
 pub const AUTH_COOKIE: &str = "access_token";
 
@@ -397,6 +221,16 @@ lazy_static! {
     };
 }
 
+impl ValidatesIdentity for Arc<IdentityProvider> {
+    fn validate_token(&self, token: &OidcToken) -> anyhow::Result<CoreIdTokenClaims> {
+        IdentityProvider::validate_token(self, token)
+    }
+
+    async fn refresh_token(&self, token: OidcToken) -> anyhow::Result<OidcToken> {
+        self.refresh(token).await
+    }
+}
+
 pub fn authenticate(
     idp: Option<Arc<IdentityProvider>>,
     session: MemoryStore,
@@ -433,7 +267,7 @@ pub fn authenticate(
                         match token {
                             Some(token) => {
                                 let (auth_user, token) =
-                                    AuthenticatedUser::validate_session(idp, token)
+                                    AuthenticatedUser::validate_session(&idp, token)
                                         .await
                                         .map_err(AnyhowError::from)?;
                                 if let Some(token) = token {

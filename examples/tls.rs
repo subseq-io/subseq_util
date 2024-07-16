@@ -1,3 +1,4 @@
+/// cargo run --example tls --features warp -- tls.json
 use std::env;
 use std::fs::File;
 
@@ -48,8 +49,8 @@ async fn main() {
 
     warp::serve(routes)
         .tls()
-        .cert_path(tls_conf.cert_path.as_str())
-        .key_path(tls_conf.key_path.as_str())
+        .cert_path(tls_conf.cert_path.to_str().unwrap())
+        .key_path(tls_conf.key_path.to_str().unwrap())
         .run(([127, 0, 0, 1], 8443))
         .await;
 }

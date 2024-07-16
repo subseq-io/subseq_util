@@ -1,8 +1,4 @@
-use std::fs::File;
-use std::io::Read;
-use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::Once;
 
 use anyhow::{anyhow, Result as AnyResult};
 use openidconnect::core::{
@@ -15,55 +11,32 @@ use openidconnect::{
     PkceCodeChallenge, PkceCodeVerifier, ProviderMetadataWithLogout, RedirectUrl, RefreshToken,
     Scope, TokenResponse,
 };
-use reqwest::{redirect::Policy, Certificate, Client};
+use reqwest::{redirect::Policy, Client};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-pub struct ClientPool {
-    certs: Vec<Certificate>,
-}
+use crate::get_cert_pool;
 
-impl ClientPool {
-    pub fn new_client(&self) -> Client {
-        let mut builder = Client::builder()
-            .use_rustls_tls()
-            .https_only(true)
-            .redirect(Policy::none())
-            .tcp_nodelay(true)
-            .tls_built_in_root_certs(true);
-        for cert in self.certs.iter() {
+fn new_client() -> Client {
+    let mut builder = Client::builder()
+        .use_rustls_tls()
+        .https_only(true)
+        .redirect(Policy::none())
+        .tcp_nodelay(true)
+        .tls_built_in_root_certs(true);
+
+    if let Some(cert_pool) = get_cert_pool() {
+        for cert in cert_pool.certs().iter() {
             builder = builder.add_root_certificate(cert.clone());
         }
-        builder.build().unwrap()
     }
-}
-
-static INIT: Once = Once::new();
-static mut CLIENT_POOL: Option<ClientPool> = None;
-
-pub fn init_client_pool<P: Into<PathBuf>>(ca_path: Option<P>) {
-    INIT.call_once(|| {
-        let mut pool_certs: Vec<Certificate> = vec![];
-        if let Some(ca_path) = ca_path {
-            let ca_path: PathBuf = ca_path.into();
-            // Load the certificate
-            let mut ca_file = File::open(ca_path).expect("Failed to open CA cert file");
-            let mut buf = Vec::new();
-            ca_file
-                .read_to_end(&mut buf)
-                .expect("CA file could not be read");
-            pool_certs.push(Certificate::from_pem(&buf).expect("Invalid certificate"));
-        }
-        unsafe {
-            CLIENT_POOL = Some(ClientPool { certs: pool_certs });
-        }
-    });
+    builder.build().unwrap()
 }
 
 pub async fn async_http_client(
     request: HttpRequest,
 ) -> Result<HttpResponse, RequestError<reqwest::Error>> {
-    let client = unsafe { CLIENT_POOL.as_ref().unwrap().new_client() };
+    let client = new_client();
 
     let mut request_builder = client
         .request(request.method, request.url.as_str())
@@ -98,6 +71,10 @@ pub struct OidcToken {
 
 impl OidcToken {
     fn from_token_response(token: CoreTokenResponse, nonce: Nonce) -> AnyResult<Self> {
+        tracing::trace!("from_token_response");
+        tracing::trace!("id_token: {:?}", token.id_token());
+        tracing::trace!("access_token: {:?}", token.access_token());
+        tracing::trace!("refresh_token: {:?}", token.refresh_token());
         Ok(Self {
             id_token: token
                 .id_token()
@@ -198,11 +175,16 @@ impl IdentityProvider {
             Some(tok) => tok,
             None => anyhow::bail!("No refresh token"),
         };
+        tracing::trace!(
+            "refresh request refresh_token: {:?}",
+            refresh_token.secret()
+        );
         let token_response = self
             .client
             .exchange_refresh_token(refresh_token)
             .request_async(async_http_client)
             .await?;
+        tracing::trace!("refresh request");
         match token.refresh(token_response) {
             Some(token) => Ok(token),
             None => anyhow::bail!("Missing token"),
@@ -246,6 +228,7 @@ impl IdentityProvider {
             .request_async(async_http_client)
             .await?;
         let oidc_token = OidcToken::from_token_response(token_response, nonce)?;
+        tracing::trace!("validate_token");
         self.validate_token(&oidc_token)?;
         Ok(oidc_token)
     }
