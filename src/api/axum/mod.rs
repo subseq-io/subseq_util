@@ -36,28 +36,31 @@ impl IntoResponse for RejectReason {
     fn into_response(self) -> Response {
         tracing::trace!("RejectReason: {:?}", self);
         match self {
-            RejectReason::BadRequest(msg) => (
+            RejectReason::BadRequest { reason } => (
                 StatusCode::BAD_REQUEST,
-                [(header::CONTENT_TYPE, "application/json")],
-                serde_json::to_string(&json!({"error": msg})).expect("valid json"),
-            )
-                .into_response(),
-            RejectReason::Conflict(msg) => (
-                StatusCode::CONFLICT,
-                [(header::CONTENT_TYPE, "application/json")],
-                serde_json::to_string(&json!({"error": msg})).expect("valid json"),
-            )
-                .into_response(),
-            RejectReason::Forbidden { user_id, reason } => (
-                StatusCode::FORBIDDEN,
                 [(header::CONTENT_TYPE, "application/json")],
                 serde_json::to_string(&json!({"error": reason})).expect("valid json"),
             )
                 .into_response(),
-            RejectReason::NotFound(msg) => (
+            RejectReason::Conflict { resource } => (
+                StatusCode::CONFLICT,
+                [(header::CONTENT_TYPE, "application/json")],
+                serde_json::to_string(&json!({"error": resource})).expect("valid json"),
+            )
+                .into_response(),
+            RejectReason::Forbidden { user_id, reason } => {
+                tracing::info!("UserId: {}, Forbidden: {}", user_id, reason);
+                (
+                    StatusCode::FORBIDDEN,
+                    [(header::CONTENT_TYPE, "application/json")],
+                    serde_json::to_string(&json!({"error": reason})).expect("valid json"),
+                )
+                    .into_response()
+            }
+            RejectReason::NotFound { resource } => (
                 StatusCode::NOT_FOUND,
                 [(header::CONTENT_TYPE, "application/json")],
-                serde_json::to_string(&json!({"error": msg})).expect("valid json"),
+                serde_json::to_string(&json!({"error": resource})).expect("valid json"),
             )
                 .into_response(),
             _ => (
