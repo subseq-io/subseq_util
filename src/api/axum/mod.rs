@@ -36,6 +36,30 @@ impl IntoResponse for RejectReason {
     fn into_response(self) -> Response {
         tracing::trace!("RejectReason: {:?}", self);
         match self {
+            RejectReason::BadRequest(msg) => (
+                StatusCode::BAD_REQUEST,
+                [(header::CONTENT_TYPE, "application/json")],
+                serde_json::to_string(&json!({"error": msg})).expect("valid json"),
+            )
+                .into_response(),
+            RejectReason::Conflict(msg) => (
+                StatusCode::CONFLICT,
+                [(header::CONTENT_TYPE, "application/json")],
+                serde_json::to_string(&json!({"error": msg})).expect("valid json"),
+            )
+                .into_response(),
+            RejectReason::Forbidden { user_id, reason } => (
+                StatusCode::FORBIDDEN,
+                [(header::CONTENT_TYPE, "application/json")],
+                serde_json::to_string(&json!({"error": reason})).expect("valid json"),
+            )
+                .into_response(),
+            RejectReason::NotFound(msg) => (
+                StatusCode::NOT_FOUND,
+                [(header::CONTENT_TYPE, "application/json")],
+                serde_json::to_string(&json!({"error": msg})).expect("valid json"),
+            )
+                .into_response(),
             _ => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 [(header::CONTENT_TYPE, "application/json")],
