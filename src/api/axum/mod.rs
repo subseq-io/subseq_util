@@ -63,12 +63,16 @@ impl IntoResponse for RejectReason {
                 serde_json::to_string(&json!({"error": resource})).expect("valid json"),
             )
                 .into_response(),
-            _ => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                [(header::CONTENT_TYPE, "application/json")],
-                serde_json::to_string(&json!({"error": "An error occured"})).expect("valid json"),
-            )
-                .into_response(),
+            _ => {
+                tracing::error!("RejectReason: {:?}", self);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    [(header::CONTENT_TYPE, "application/json")],
+                    serde_json::to_string(&json!({"error": "An error occured"}))
+                        .expect("valid json"),
+                )
+                    .into_response()
+            }
         }
     }
 }
