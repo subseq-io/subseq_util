@@ -97,6 +97,7 @@ async fn resend_email_handler<
         Ok(builder) => builder,
         Err(e) => return Ok(AnyhowError::from(e).into_response()),
     };
+    let builder = builder.subject("Verify your email");  // TODO: Move to config, i18n
     let email = EmailAddress::from_str(&user.email())
         .map_err(|_| RejectReason::bad_request(format!("Invalid user email: {}", user.email())))?;
     let email_tx = app.router.announce();
