@@ -4,7 +4,7 @@ use axum::{
     async_trait,
     extract::{FromRequestParts, Query, Request, State},
     http::{
-        header::{AUTHORIZATION, COOKIE, SET_COOKIE},
+        header::{AUTHORIZATION, CACHE_CONTROL, COOKIE, EXPIRES, SET_COOKIE},
         request::Parts,
         HeaderMap, HeaderValue, StatusCode,
     },
@@ -334,16 +334,13 @@ async fn logout(
             parse_auth_cookie(token.value()).map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
         let logout_url = app.idp.logout_oidc("/", &oidc_token);
         let uri = logout_url.as_str();
-        let mut response = Redirect::to(uri);
+        let mut response = Redirect::to(uri).into_response();
         {
-            let mut headers = response.headers_mut();
-            headers.insert(
-                "Cache-Control",
-                "no-store, must-revalidate".parse().unwrap(),
-            );
-            headers.insert("Expires", "0".parse.unwrap());
+            let headers = response.headers_mut();
+            headers.insert(CACHE_CONTROL, "no-store, must-revalidate".parse().unwrap());
+            headers.insert(EXPIRES, "0".parse().unwrap());
             let cookie = format!("{}=; Max-Age=0; Path=/; HttpOnly; Secure", AUTH_COOKIE);
-            headers.insert("Set-Cookie", cookie.parse().unwrap());
+            headers.insert(SET_COOKIE, cookie.parse().unwrap());
         }
         Ok(response)
     } else {
