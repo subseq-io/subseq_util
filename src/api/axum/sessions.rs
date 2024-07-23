@@ -324,9 +324,9 @@ fn parse_auth_cookie(cookie_str: &str) -> Result<OidcToken, AuthRejectReason> {
 
 async fn logout(
     session: Session,
-    jar: AxumCookieJar,
     State(app): State<AppState>,
-) -> Result<impl IntoResponse, StatusCode> {
+    jar: AxumCookieJar,
+) -> Result<(AxumCookieJar, impl IntoResponse), StatusCode> {
     session.delete().await.ok();
     let token = jar.get(AUTH_COOKIE);
     if let Some(token) = token {
@@ -334,7 +334,8 @@ async fn logout(
             parse_auth_cookie(token.value()).map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
         let logout_url = app.idp.logout_oidc("/", &oidc_token);
         let uri = logout_url.as_str();
-        Ok(Redirect::to(uri))
+        let jar = jar.remove(AUTH_COOKIE);
+        Ok((jar, Redirect::to(uri)))
     } else {
         Err(StatusCode::UNAUTHORIZED)
     }
