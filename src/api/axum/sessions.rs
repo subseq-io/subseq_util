@@ -326,7 +326,7 @@ async fn logout(
     session: Session,
     State(app): State<AppState>,
     jar: AxumCookieJar,
-) -> Result<(AxumCookieJar, impl IntoResponse), StatusCode> {
+) -> Result<Response, StatusCode> {
     session.delete().await.ok();
     let token = jar.get(AUTH_COOKIE);
     if let Some(token) = token {
@@ -334,8 +334,18 @@ async fn logout(
             parse_auth_cookie(token.value()).map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
         let logout_url = app.idp.logout_oidc("/", &oidc_token);
         let uri = logout_url.as_str();
-        let jar = jar.remove(AUTH_COOKIE);
-        Ok((jar, Redirect::to(uri)))
+        let mut response = Redirect::to(uri);
+        {
+            let mut headers = response.headers_mut();
+            headers.insert(
+                "Cache-Control",
+                "no-store, must-revalidate".parse().unwrap(),
+            );
+            headers.insert("Expires", "0".parse.unwrap());
+            let cookie = format!("{}=; Max-Age=0; Path=/; HttpOnly; Secure", AUTH_COOKIE);
+            headers.insert("Set-Cookie", cookie.parse().unwrap());
+        }
+        Ok(response)
     } else {
         Err(StatusCode::UNAUTHORIZED)
     }
