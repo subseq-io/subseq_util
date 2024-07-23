@@ -330,8 +330,8 @@ async fn logout(
     session.delete().await.ok();
     let token = jar.get(AUTH_COOKIE);
     if let Some(token) = token {
-        let oidc_token = parse_auth_cookie(token.to_string().as_str())
-            .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
+        let oidc_token =
+            parse_auth_cookie(token.value()).map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
         let logout_url = app.idp.logout_oidc("/", &oidc_token);
         let uri = logout_url.as_str();
         Ok(Redirect::to(uri))
