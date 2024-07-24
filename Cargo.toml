@@ -20,6 +20,7 @@ email_address = "0.2.4"
 function_name = "0.3.0"
 futures-util = "0.3.30"
 handlebars = { version = "5.1.2", features = ["dir_source"] }
+hyper-warp = { package = "hyper", version = "0.14.0", optional = true }
 hyper = { version = "1.4.1", optional = true }
 lazy_static = "1.4.0"
 openidconnect = "3.4.0"
@@ -50,5 +51,5 @@ warp-sessions = { version = "1.0.19", optional = true }
 default = []
 abort-on-connection-error = []
 console = ["console-subscriber"]
-warp = ["dep:warp", "warp-sessions"]
+warp = ["dep:warp", "warp-sessions", "hyper-warp"]
 axum = ["dep:axum", "axum-extra", "tower-sessions", "tower-http", "tower", "hyper"]

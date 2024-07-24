@@ -85,7 +85,7 @@ async fn login_handler(
     Ok((redirect(auth_url)?, session))
 }
 
-fn redirect<U: Into<String>>(url: U) -> Result<Response<hyper::Body>, Rejection> {
+fn redirect<U: Into<String>>(url: U) -> Result<Response<hyper_warp::Body>, Rejection> {
     let uri: warp::http::Uri = url
         .into()
         .try_into()

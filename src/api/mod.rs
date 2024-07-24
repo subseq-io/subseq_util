@@ -170,6 +170,7 @@ impl From<AnyhowError> for String {
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum RejectReason {
+    Anyhow { error: AnyhowError },
     BadRequest { reason: String },
     Conflict { resource: String },
     DatabaseError { msg: String },
@@ -180,6 +181,12 @@ pub enum RejectReason {
 }
 
 impl RejectReason {
+    pub fn anyhow(error: anyhow::Error) -> Self {
+        RejectReason::Anyhow {
+            error: AnyhowError { error },
+        }
+    }
+
     pub fn bad_request<S: Into<String>>(reason: S) -> Self {
         RejectReason::BadRequest {
             reason: reason.into(),
