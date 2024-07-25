@@ -179,11 +179,18 @@ impl IdentityProvider {
             "refresh request refresh_token: {:?}",
             refresh_token.secret()
         );
-        let token_response = self
+        let token_request = self
             .client
             .exchange_refresh_token(refresh_token)
-            .request_async(async_http_client)
-            .await?;
+            .add_scope(Scope::new("offline_access".into()));
+        tracing::trace!("token_request: {:?}", token_request);
+        let token_response = match token_request.request_async(async_http_client).await {
+            Ok(tok) => tok,
+            Err(e) => {
+                tracing::error!("Error refreshing token: {:?}", e);
+                return Err(anyhow!("Error refreshing token"));
+            }
+        };
         tracing::trace!("refresh request");
         match token.refresh(token_response) {
             Some(token) => Ok(token),

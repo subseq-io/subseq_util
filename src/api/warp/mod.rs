@@ -120,6 +120,13 @@ pub async fn handle_rejection(
 
     if let Some(err) = err.find::<RejectReason>() {
         match err {
+            RejectReason::Anyhow { error: anyhow_err } => {
+                tracing::error!("{:?}", anyhow_err.error);
+                let json = warp::reply::json(&json!({"error": anyhow_err.error.to_string()}));
+                let response =
+                    warp::reply::with_status(json, warp::http::StatusCode::INTERNAL_SERVER_ERROR);
+                return Ok(Box::new(response));
+            }
             RejectReason::BadRequest { reason } => {
                 let json = warp::reply::json(&json!({"rejected": reason}));
                 let response = warp::reply::with_status(json, warp::http::StatusCode::BAD_REQUEST);

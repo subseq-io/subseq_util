@@ -3085,6 +3085,7 @@ dependencies = [
  "function_name",
  "futures-util",
  "handlebars",
+ "hyper 0.14.28",
  "hyper 1.4.1",
  "lazy_static",
  "openidconnect",
