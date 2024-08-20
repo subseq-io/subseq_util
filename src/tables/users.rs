@@ -299,7 +299,7 @@ macro_rules! create_async_user_base {
 
                         let user_id_account = UserIdAccount {
                             user_id: transaction_user.id,
-                            username: username.trim(),
+                            username: username.trim().to_string(),
                             account_type: Some(account_type.to_string()),
                         };
                         diesel::insert_into(crate::schema::auth::user_id_accounts::table)
