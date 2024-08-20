@@ -106,7 +106,7 @@ where
                 Some(
                     parse_auth_cookie(auth_cookie.value())
                         .map_err(|err| {
-                            tracing::warn!("Invalid authorization token: {}", err);
+                            tracing::warn!("Invalid authorization token: {:?}", err);
                             err
                         })
                         .ok()?,
