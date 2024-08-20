@@ -106,7 +106,7 @@ where
                 Some(
                     parse_auth_cookie(auth_cookie.value())
                         .map_err(|err| {
-                            tracing::warn!("Invalid authorization token: {:?}", err);
+                            tracing::warn!("Invalid authorization token: {}", err);
                             err
                         })
                         .ok()?,
@@ -119,7 +119,7 @@ where
         let (auth_user, token) = AuthenticatedUser::validate_session(state, token)
             .await
             .map_err(|err| {
-                tracing::warn!("Invalid session token: {:?}", err);
+                tracing::warn!("Invalid session token: {}", err);
                 err
             })
             .ok()?;
