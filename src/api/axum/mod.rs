@@ -63,6 +63,7 @@ impl IntoResponse for RejectReason {
                 serde_json::to_string(&json!({"error": resource})).expect("valid json"),
             )
                 .into_response(),
+            RejectReason::AnyhowError { error } => error.into_response(),
             _ => {
                 tracing::error!("RejectReason: {:?}", self);
                 (
