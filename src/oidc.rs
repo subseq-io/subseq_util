@@ -187,7 +187,7 @@ impl IdentityProvider {
         let token_response = match token_request.request_async(async_http_client).await {
             Ok(tok) => tok,
             Err(e) => {
-                tracing::error!("Error refreshing token: {:?}", e);
+                tracing::debug!("Error refreshing token: {:?}", e);
                 return Err(anyhow!("Error refreshing token"));
             }
         };

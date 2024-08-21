@@ -119,7 +119,7 @@ where
         let (auth_user, token) = AuthenticatedUser::validate_session(state, token)
             .await
             .map_err(|err| {
-                tracing::warn!("Invalid session token: {}", err);
+                tracing::debug!("Invalid session token: {}", err);
                 err
             })
             .ok()?;
