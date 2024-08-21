@@ -22,7 +22,7 @@ pub struct AppState {
 
 impl IntoResponse for AnyhowError {
     fn into_response(self) -> Response {
-        tracing::info!("AnyhowError: {:?}", self.error);
+        tracing::warn!("AnyhowError: {:?}", self.error.context());
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             [(header::CONTENT_TYPE, "application/json")],
