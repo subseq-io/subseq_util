@@ -14,9 +14,9 @@ bb8 = { version = "0.8.5" }
 chrono = { version = "0.4.31", features = ["serde"] }
 console-subscriber = {version = "0.2.0", optional = true}
 cookie = "0.18.0"
-diesel = { version = "2.1.6", features = ["chrono", "r2d2", "postgres", "postgres_backend", "uuid", "serde_json"] }
-diesel-async = { version = "0.4.1", features = ["postgres", "bb8", "async-connection-wrapper"] }
-diesel_migrations = { version = "2.1.0", features = ["postgres"] }
+diesel = { version = "2.2.3", features = ["chrono", "r2d2", "postgres", "postgres_backend", "uuid", "serde_json"] }
+diesel-async = { version = "0.5.0", features = ["postgres", "bb8", "async-connection-wrapper"] }
+diesel_migrations = { version = "2.2.0", features = ["postgres"] }
 email_address = "0.2.4"
 function_name = "0.3.0"
 futures-util = "0.3.30"
