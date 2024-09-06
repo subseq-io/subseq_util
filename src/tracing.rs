@@ -11,7 +11,7 @@ pub fn setup_tracing(app_name: &str, filter_level: Option<String>) {
             .with_line_number(true)
             .with_file(true);
 
-        #[cfg(console)]
+        #[cfg(feature = "console")]
         {
             let console_layer = console_subscriber::spawn();
             let filter_layer = if let Some(filter_level) = filter_level {
@@ -26,7 +26,7 @@ pub fn setup_tracing(app_name: &str, filter_level: Option<String>) {
                 .init();
             tracing::info!("Tracing started with console");
         }
-        #[cfg(not(console))]
+        #[cfg(not(feature = "console"))]
         {
             let filter_layer = if let Some(filter_level) = filter_level {
                 EnvFilter::new(filter_level)
