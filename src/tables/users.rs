@@ -216,7 +216,7 @@ macro_rules! create_async_user_base {
             }
         }
 
-        #[derive(Queryable, Insertable, Clone, Debug, Serialize, Deserialize)]
+        #[derive(Queryable, QueryableByName, Insertable, Clone, Debug, Serialize, Deserialize)]
         #[diesel(table_name = crate::schema::auth::users)]
         pub struct User {
             pub id: UserId,
