@@ -170,6 +170,7 @@ impl From<AnyhowError> for String {
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum RejectReason {
+    Auth { reason: AuthRejectReason },
     Anyhow { error: AnyhowError },
     BadRequest { reason: String },
     Conflict { resource: String },
@@ -181,6 +182,10 @@ pub enum RejectReason {
 }
 
 impl RejectReason {
+    pub fn auth(reason: AuthRejectReason) -> Self {
+        RejectReason::Auth { reason }
+    }
+
     pub fn anyhow(error: anyhow::Error) -> Self {
         RejectReason::Anyhow {
             error: AnyhowError { error },
