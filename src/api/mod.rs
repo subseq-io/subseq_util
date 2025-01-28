@@ -12,6 +12,7 @@ mod axum;
 #[cfg(feature = "warp")]
 mod warp;
 
+#[derive(Clone, Debug)]
 pub struct ActiveUser(pub UserId);
 
 #[derive(Debug)]
