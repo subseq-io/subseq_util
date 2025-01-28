@@ -22,6 +22,8 @@ struct VerifyQuery {
     id: String,
 }
 
+pub struct ActiveUser(pub UserId);
+
 async fn verify_email_handler<E: UnverifiedEmailTable, U: UserTable, UIT: UserIdTable>(
     auth_user: AuthenticatedUser,
     Query(query): Query<VerifyQuery>,
@@ -65,6 +67,7 @@ async fn verify_email_handler<E: UnverifiedEmailTable, U: UserTable, UIT: UserId
                 .set_account_type(&mut conn, UserAccountType::Active)
                 .await
                 .map_err(RejectReason::database_error)?;
+            app.router.announce().send(ActiveUser(user.id())).await;
 
             Ok((
                 StatusCode::OK,
