@@ -14,15 +14,13 @@ use serde::Deserialize;
 use serde_json::json;
 use std::str::FromStr;
 
-use super::{super::AuthenticatedUser, AnyhowError, AppState, RejectReason};
+use super::{super::{AuthenticatedUser, ActiveUser}, AnyhowError, AppState, RejectReason};
 use crate::email::send_verification_email;
 
 #[derive(Deserialize)]
 struct VerifyQuery {
     id: String,
 }
-
-pub struct ActiveUser(pub UserId);
 
 async fn verify_email_handler<E: UnverifiedEmailTable, U: UserTable, UIT: UserIdTable>(
     auth_user: AuthenticatedUser,

@@ -12,6 +12,8 @@ mod axum;
 #[cfg(feature = "warp")]
 mod warp;
 
+pub struct ActiveUser(pub UserId);
+
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum AuthRejectReason {
