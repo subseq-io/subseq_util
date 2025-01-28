@@ -14,7 +14,10 @@ use serde::Deserialize;
 use serde_json::json;
 use std::str::FromStr;
 
-use super::{super::{AuthenticatedUser, ActiveUser}, AnyhowError, AppState, RejectReason};
+use super::{
+    super::{ActiveUser, AuthenticatedUser},
+    AnyhowError, AppState, RejectReason,
+};
 use crate::email::send_verification_email;
 
 #[derive(Deserialize)]
@@ -65,7 +68,7 @@ async fn verify_email_handler<E: UnverifiedEmailTable, U: UserTable, UIT: UserId
                 .set_account_type(&mut conn, UserAccountType::Active)
                 .await
                 .map_err(RejectReason::database_error)?;
-            app.router.announce().send(ActiveUser(user.id())).await;
+            app.router.announce().send(ActiveUser(user.id())).ok();
 
             Ok((
                 StatusCode::OK,
@@ -98,7 +101,7 @@ async fn resend_email_handler<
         Ok(builder) => builder,
         Err(e) => return Ok(AnyhowError::from(e).into_response()),
     };
-    let builder = builder.subject("Verify your email");  // TODO: Move to config, i18n
+    let builder = builder.subject("Verify your email"); // TODO: Move to config, i18n
     let email = EmailAddress::from_str(&user.email())
         .map_err(|_| RejectReason::bad_request(format!("Invalid user email: {}", user.email())))?;
     let email_tx = app.router.announce();
