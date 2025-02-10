@@ -148,7 +148,7 @@ macro_rules! create_async_user_base {
         use diesel_async::scoped_futures::ScopedFutureExt;
         use diesel_async::{AsyncConnection, RunQueryDsl};
 
-        #[derive(PartialEq, Queryable, Insertable, Clone, Debug, Serialize)]
+        #[derive(PartialEq, Queryable, Insertable, Clone, Debug, Default, Serialize)]
         #[diesel(table_name = crate::schema::auth::metadata)]
         pub struct UserMetadata {
             pub user_id: UserId,
