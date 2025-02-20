@@ -54,5 +54,8 @@ pub fn init_cert_pool<P: Into<PathBuf>>(ca_path: Option<P>) {
 }
 
 pub fn get_cert_pool() -> Option<&'static CertPool> {
-    unsafe { CERT_POOL.as_ref() }
+    #[allow(static_mut_refs)]
+    unsafe {
+        CERT_POOL.as_ref()
+    }
 }
