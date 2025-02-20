@@ -200,7 +200,11 @@ pub mod harness {
         let url = url.to_string();
         spawn(
             move || -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-                let mut connection = AsyncConnectionWrapper::<AsyncPgConnection>::establish(&url)?;
+                let mut connection =
+                    <AsyncConnectionWrapper<AsyncPgConnection> as diesel::Connection>::establish(
+                        &url,
+                    )?;
+
                 for mig in <EmbeddedMigrations as MigrationSource<Pg>>::migrations(&AUTH_MIGRATIONS)
                     .unwrap()
                 {
