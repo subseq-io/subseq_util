@@ -41,10 +41,9 @@ pub fn init_cert_pool<P: Into<PathBuf>>(ca_path: Option<P>) {
                 .expect("CA file could not be read");
 
             certs.push(Certificate::from_pem(&buf).expect("Invalid certificate"));
-            for cert in rustls_pemfile::certs(&mut &buf[..]) {
-                if let Ok(cert) = cert {
-                    der_certs.push(cert);
-                }
+
+            for cert in rustls_pemfile::certs(&mut &buf[..]).flatten() {
+                der_certs.push(cert);
             }
         }
         unsafe {
@@ -54,5 +53,8 @@ pub fn init_cert_pool<P: Into<PathBuf>>(ca_path: Option<P>) {
 }
 
 pub fn get_cert_pool() -> Option<&'static CertPool> {
-    unsafe { CERT_POOL.as_ref() }
+    #[allow(static_mut_refs)]
+    unsafe {
+        CERT_POOL.as_ref()
+    }
 }
