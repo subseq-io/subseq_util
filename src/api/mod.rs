@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context, Result as AnyResult};
 use email_address::EmailAddress;
 use openidconnect::core::CoreIdTokenClaims;
+use serde::Serialize;
 use uuid::Uuid;
 
 use crate::oidc::OidcToken;
@@ -15,7 +16,7 @@ mod warp;
 #[derive(Clone, Debug)]
 pub struct ActiveUser(pub UserId);
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 #[non_exhaustive]
 pub enum AuthRejectReason {
     OidcError { msg: &'static str },
@@ -26,7 +27,7 @@ pub enum AuthRejectReason {
     NoSessionToken,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 #[non_exhaustive]
 pub struct AuthenticatedUser {
     pub(super) id: Uuid,

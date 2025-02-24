@@ -127,6 +127,11 @@ pub async fn handle_rejection(
                     warp::reply::with_status(json, warp::http::StatusCode::INTERNAL_SERVER_ERROR);
                 return Ok(Box::new(response));
             }
+            RejectReason::Auth { reason } => {
+                let json = warp::reply::json(&json!({"rejected": reason}));
+                let response = warp::reply::with_status(json, warp::http::StatusCode::UNAUTHORIZED);
+                return Ok(Box::new(response));
+            }
             RejectReason::BadRequest { reason } => {
                 let json = warp::reply::json(&json!({"rejected": reason}));
                 let response = warp::reply::with_status(json, warp::http::StatusCode::BAD_REQUEST);
