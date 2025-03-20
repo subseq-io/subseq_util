@@ -16,7 +16,8 @@ pub type DbPool = Pool<Manager>;
 
 pub struct Manager {
     manager: AsyncDieselConnectionManager<AsyncPgConnection>,
-    n_connections: AtomicU32,
+    connections_created: AtomicU32,
+    connections_recycled: AtomicU32,
 }
 
 impl DeadpoolManager for Manager {
@@ -24,18 +25,21 @@ impl DeadpoolManager for Manager {
     type Error = PoolError;
 
     async fn create(&self) -> Result<Self::Type, Self::Error> {
-        let n_connections = self.n_connections.fetch_add(1, Ordering::Relaxed);
-        tracing::debug!("Creating new connection: {}", n_connections + 1);
+        let connections_created = self.connections_created.fetch_add(1, Ordering::Relaxed);
+        tracing::debug!("Creating new connection: {}", connections_created + 1);
         self.manager.create().await
     }
 
     async fn recycle(&self, obj: &mut Self::Type, metrics: &Metrics) -> RecycleResult<Self::Error> {
-        let n_connections = self.n_connections.fetch_sub(1, Ordering::Relaxed);
+        let n_connections = self.connections_created.load(Ordering::Relaxed);
+        let connections_recycled = self.connections_recycled.fetch_add(1, Ordering::Relaxed);
+
         tracing::debug!(
-            "Recycling connection (created: {}, last_used: {}, n_connections: {}))",
+            "Recycling connection (created: {}, last_used: {}, connections: {}, recycled: {})",
             metrics.age().as_secs(),
             metrics.last_used().as_secs(),
-            n_connections - 1
+            n_connections,
+            connections_recycled + 1
         );
         self.manager.recycle(obj, metrics).await
     }
@@ -90,7 +94,8 @@ pub async fn establish_connection_pool(
         AsyncDieselConnectionManager::<AsyncPgConnection>::new_with_config(db_url, config);
     let manager = Manager {
         manager,
-        n_connections: AtomicU32::new(0),
+        connections_created: AtomicU32::new(0),
+        connections_recycled: AtomicU32::new(0),
     };
 
     let pool = Pool::builder(manager)
