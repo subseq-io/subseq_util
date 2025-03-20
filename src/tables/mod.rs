@@ -6,6 +6,7 @@ use diesel::{ConnectionError, ConnectionResult};
 use diesel_async::pooled_connection::{AsyncDieselConnectionManager, ManagerConfig, PoolError};
 use diesel_async::AsyncPgConnection;
 use futures_util::future::{BoxFuture, FutureExt};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::get_cert_pool;
 pub use crate::tables::email::{gen_rand_string, EmailVerification, UnverifiedEmailTable};
@@ -15,6 +16,7 @@ pub type DbPool = Pool<Manager>;
 
 pub struct Manager {
     manager: AsyncDieselConnectionManager<AsyncPgConnection>,
+    n_connections: AtomicU32,
 }
 
 impl DeadpoolManager for Manager {
@@ -22,12 +24,19 @@ impl DeadpoolManager for Manager {
     type Error = PoolError;
 
     async fn create(&self) -> Result<Self::Type, Self::Error> {
-        tracing::debug!("Creating new connection");
+        let n_connections = self.n_connections.fetch_add(1, Ordering::Relaxed);
+        tracing::debug!("Creating new connection: {}", n_connections + 1);
         self.manager.create().await
     }
 
     async fn recycle(&self, obj: &mut Self::Type, metrics: &Metrics) -> RecycleResult<Self::Error> {
-        tracing::debug!("Recycling connection: {:?}", metrics);
+        let n_connections = self.n_connections.fetch_sub(1, Ordering::Relaxed);
+        tracing::debug!(
+            "Recycling connection (created: {}, last_used: {}, n_connections: {}))",
+            metrics.age().as_secs(),
+            metrics.last_used().as_secs(),
+            n_connections - 1
+        );
         self.manager.recycle(obj, metrics).await
     }
 }
@@ -68,16 +77,24 @@ fn root_certs() -> rustls::RootCertStore {
     roots
 }
 
-pub async fn establish_connection_pool(db_url: &str, secure: bool) -> anyhow::Result<DbPool> {
+pub async fn establish_connection_pool(
+    db_url: &str,
+    secure: bool,
+    size: usize,
+) -> anyhow::Result<DbPool> {
     let mut config = ManagerConfig::default();
     if secure {
         config.custom_setup = Box::new(establish_secure_connection);
     }
     let manager =
         AsyncDieselConnectionManager::<AsyncPgConnection>::new_with_config(db_url, config);
-    let manager = Manager { manager };
+    let manager = Manager {
+        manager,
+        n_connections: AtomicU32::new(0),
+    };
 
     let pool = Pool::builder(manager)
+        .max_size(size)
         .build()
         .expect("Failed to create connection pool");
     Ok(pool)
