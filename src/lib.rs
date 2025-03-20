@@ -15,3 +15,5 @@ pub use crate::router::ChannelRouter;
 pub use crate::server::{BaseConfig, InnerConfig};
 
 pub use crate::tables::UserId;
+
+include!(concat!(env!("OUT_DIR"), "/version.rs"));

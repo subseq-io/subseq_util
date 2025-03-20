@@ -1,6 +1,7 @@
 use tracing_log::LogTracer;
 use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::prelude::*;
+use crate::SUBSEQ_UTIL_VERSION;
 
 pub fn setup_tracing(app_name: &str, filter_level: Option<String>) {
     #[cfg(debug_assertions)]
@@ -55,5 +56,5 @@ pub fn setup_tracing(app_name: &str, filter_level: Option<String>) {
             .with(tracing_layer)
             .init();
     }
-    tracing::info!("App '{}' started", app_name);
+    tracing::info!("App '{}' started (subseq_util: {})", app_name, SUBSEQ_UTIL_VERSION);
 }
