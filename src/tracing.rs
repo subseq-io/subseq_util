@@ -56,7 +56,7 @@ pub fn setup_tracing(app_name: &str, filter_level: Option<String>) {
             .with(tracing_layer)
             .init();
     }
-    tracing::debug!(
+    tracing::info!(
         "Tracing started: {}",
         if let Some(filter_level) = filter_level {
             filter_level
