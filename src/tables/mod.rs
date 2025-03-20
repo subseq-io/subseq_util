@@ -50,7 +50,11 @@ fn root_certs() -> rustls::RootCertStore {
     roots
 }
 
-pub async fn establish_connection_pool(db_url: &str, secure: bool) -> anyhow::Result<DbPool> {
+pub async fn establish_connection_pool(
+    db_url: &str,
+    secure: bool,
+    num_connections: u32,
+) -> anyhow::Result<DbPool> {
     let mut config = ManagerConfig::default();
     if secure {
         config.custom_setup = Box::new(establish_secure_connection);
@@ -58,7 +62,7 @@ pub async fn establish_connection_pool(db_url: &str, secure: bool) -> anyhow::Re
     let manager =
         AsyncDieselConnectionManager::<AsyncPgConnection>::new_with_config(db_url, config);
 
-    let pool_async = Pool::builder().build(manager);
+    let pool_async = Pool::builder().max_size(num_connections).build(manager);
     match tokio::time::timeout(DB_TIMEOUT, pool_async).await {
         Ok(Ok(pool)) => {
             let conn = pool.get().await?; // Verify the connection succeeded
