@@ -16,7 +16,7 @@ pub fn setup_tracing(app_name: &str, filter_level: Option<String>) {
         #[cfg(feature = "console")]
         {
             let console_layer = console_subscriber::spawn();
-            let filter_layer = if let Some(filter_level) = filter_level {
+            let filter_layer = if let Some(filter_level) = filter_level.clone() {
                 EnvFilter::new(filter_level)
             } else {
                 EnvFilter::new(format!("{}=debug,subseq_util=debug", app_name))
@@ -26,11 +26,11 @@ pub fn setup_tracing(app_name: &str, filter_level: Option<String>) {
                 .with(console_layer)
                 .with(tracing_layer)
                 .init();
-            tracing::info!("Tracing started with console");
+            tracing::info!("Tracing started with console: {:?}", filter_level);
         }
         #[cfg(not(feature = "console"))]
         {
-            let filter_layer = if let Some(filter_level) = filter_level {
+            let filter_layer = if let Some(filter_level) = filter_level.clone() {
                 EnvFilter::new(filter_level)
             } else {
                 EnvFilter::new(format!("{}=debug,subseq_util=debug", app_name))
@@ -39,6 +39,7 @@ pub fn setup_tracing(app_name: &str, filter_level: Option<String>) {
                 .with(filter_layer)
                 .with(tracing_layer)
                 .init();
+            tracing::info!("Tracing started without console: {:?}", filter_level);
         }
     }
     #[cfg(not(debug_assertions))]
