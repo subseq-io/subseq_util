@@ -1,10 +1,9 @@
 pub mod email;
 pub mod users;
 
+use deadpool::managed::{Manager as DeadpoolManager, Metrics, Pool, RecycleResult};
 use diesel::{ConnectionError, ConnectionResult};
-use diesel_async::pooled_connection::{
-    deadpool::Pool, AsyncDieselConnectionManager, ManagerConfig,
-};
+use diesel_async::pooled_connection::{AsyncDieselConnectionManager, ManagerConfig, PoolError};
 use diesel_async::AsyncPgConnection;
 use futures_util::future::{BoxFuture, FutureExt};
 
@@ -12,7 +11,26 @@ use crate::get_cert_pool;
 pub use crate::tables::email::{gen_rand_string, EmailVerification, UnverifiedEmailTable};
 pub use crate::tables::users::{UserAccountType, UserId, UserIdTable, UserTable};
 
-pub type DbPool = Pool<AsyncPgConnection>;
+pub type DbPool = Pool<Manager>;
+
+pub struct Manager {
+    manager: AsyncDieselConnectionManager<AsyncPgConnection>,
+}
+
+impl DeadpoolManager for Manager {
+    type Type = AsyncPgConnection;
+    type Error = PoolError;
+
+    async fn create(&self) -> Result<Self::Type, Self::Error> {
+        tracing::debug!("Creating new connection");
+        self.manager.create().await
+    }
+
+    async fn recycle(&self, obj: &mut Self::Type, metrics: &Metrics) -> RecycleResult<Self::Error> {
+        tracing::debug!("Recycling connection: {:?}", metrics);
+        self.manager.recycle(obj, metrics).await
+    }
+}
 
 fn establish_secure_connection(config: &str) -> BoxFuture<ConnectionResult<AsyncPgConnection>> {
     let fut = async move {
@@ -57,6 +75,7 @@ pub async fn establish_connection_pool(db_url: &str, secure: bool) -> anyhow::Re
     }
     let manager =
         AsyncDieselConnectionManager::<AsyncPgConnection>::new_with_config(db_url, config);
+    let manager = Manager { manager };
 
     let pool = Pool::builder(manager)
         .build()

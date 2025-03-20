@@ -2901,6 +2901,7 @@ dependencies = [
  "base64 0.13.1",
  "chrono",
  "cookie",
+ "deadpool",
  "diesel",
  "diesel-async",
  "diesel_migrations",
