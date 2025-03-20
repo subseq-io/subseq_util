@@ -18,7 +18,7 @@ pub fn setup_tracing(app_name: &str, filter_level: Option<String>) {
         #[cfg(feature = "console")]
         {
             let console_layer = console_subscriber::spawn();
-            let filter_layer = if let Some(filter_level) = filter_level.clone() {
+            let filter_layer = if let Some(filter_level) = filter_level.as_ref() {
                 EnvFilter::new(filter_level)
             } else {
                 EnvFilter::new(default_log_levels.as_str())
@@ -31,7 +31,7 @@ pub fn setup_tracing(app_name: &str, filter_level: Option<String>) {
         }
         #[cfg(not(feature = "console"))]
         {
-            let filter_layer = if let Some(filter_level) = filter_level.clone() {
+            let filter_layer = if let Some(filter_level) = filter_level.as_ref() {
                 EnvFilter::new(filter_level)
             } else {
                 EnvFilter::new(default_log_levels.as_str())
@@ -46,7 +46,7 @@ pub fn setup_tracing(app_name: &str, filter_level: Option<String>) {
     #[cfg(not(debug_assertions))]
     {
         let tracing_layer = tracing_subscriber::fmt::layer().compact().with_level(true);
-        let filter_layer = if let Some(filter_level) = filter_level {
+        let filter_layer = if let Some(filter_level) = filter_level.as_ref() {
             EnvFilter::new(filter_level)
         } else {
             EnvFilter::new(default_log_levels.as_str())
