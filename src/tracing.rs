@@ -5,7 +5,10 @@ use tracing_subscriber::prelude::*;
 
 pub fn setup_tracing(app_name: &str, filter_level: Option<String>) {
     let default_log_levels = format!("{}=debug,subseq_util=debug", app_name);
-    LogTracer::init().expect("Failed to set logger");
+    let logger = LogTracer::new();
+    log::set_boxed_logger(Box::new(logger)).unwrap();
+    log::set_max_level(log::LevelFilter::Trace);
+
     #[cfg(debug_assertions)]
     {
         let tracing_layer = tracing_subscriber::fmt::layer()
