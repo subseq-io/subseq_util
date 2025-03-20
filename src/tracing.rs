@@ -1,9 +1,11 @@
+use tracing_log::LogTracer;
 use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::prelude::*;
 
 pub fn setup_tracing(app_name: &str, filter_level: Option<String>) {
     #[cfg(debug_assertions)]
     {
+        LogTracer::init().expect("Failed to set logger");
         let tracing_layer = tracing_subscriber::fmt::layer()
             .compact()
             .with_level(true)
