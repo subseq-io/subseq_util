@@ -10,11 +10,10 @@ anymap = "0.12.1"
 axum = { version = "0.7.5", features = ["ws", "macros", "multipart", "http2"], optional = true }
 axum-extra = { version = "0.9.3", features = ["cookie", "multipart"], optional = true }
 base64 = "0.13.0"
-bb8 = { version = "0.8.5" }
 chrono = { version = "0.4.31", features = ["serde"] }
 cookie = "0.18.0"
 diesel = { version = "2.2.3", features = ["chrono", "r2d2", "postgres", "postgres_backend", "uuid", "serde_json"] }
-diesel-async = { version = "0.5.0", features = ["postgres", "bb8", "async-connection-wrapper"] }
+diesel-async = { version = "0.5.0", features = ["postgres", "deadpool", "async-connection-wrapper"] }
 diesel_migrations = { version = "2.2.0", features = ["postgres"] }
 email_address = "0.2.4"
 function_name = "0.3.0"

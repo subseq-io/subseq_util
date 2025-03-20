@@ -208,7 +208,7 @@ impl RejectReason {
         }
     }
 
-    pub fn pool_error(err: bb8::RunError<diesel_async::pooled_connection::PoolError>) -> Self {
+    pub fn pool_error(err: diesel_async::pooled_connection::deadpool::PoolError) -> Self {
         RejectReason::DatabaseError {
             msg: format!("pool {}", err),
         }

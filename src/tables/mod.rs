@@ -2,17 +2,17 @@ pub mod email;
 pub mod users;
 
 use diesel::{ConnectionError, ConnectionResult};
-use diesel_async::pooled_connection::{bb8::Pool, AsyncDieselConnectionManager, ManagerConfig};
+use diesel_async::pooled_connection::{
+    deadpool::Pool, AsyncDieselConnectionManager, ManagerConfig,
+};
 use diesel_async::AsyncPgConnection;
 use futures_util::future::{BoxFuture, FutureExt};
-use tokio::time::Duration;
 
 use crate::get_cert_pool;
 pub use crate::tables::email::{gen_rand_string, EmailVerification, UnverifiedEmailTable};
 pub use crate::tables::users::{UserAccountType, UserId, UserIdTable, UserTable};
 
 pub type DbPool = Pool<AsyncPgConnection>;
-const DB_TIMEOUT: Duration = Duration::from_secs(3);
 
 fn establish_secure_connection(config: &str) -> BoxFuture<ConnectionResult<AsyncPgConnection>> {
     let fut = async move {
@@ -50,11 +50,7 @@ fn root_certs() -> rustls::RootCertStore {
     roots
 }
 
-pub async fn establish_connection_pool(
-    db_url: &str,
-    secure: bool,
-    num_connections: u32,
-) -> anyhow::Result<DbPool> {
+pub async fn establish_connection_pool(db_url: &str, secure: bool) -> anyhow::Result<DbPool> {
     let mut config = ManagerConfig::default();
     if secure {
         config.custom_setup = Box::new(establish_secure_connection);
@@ -62,19 +58,10 @@ pub async fn establish_connection_pool(
     let manager =
         AsyncDieselConnectionManager::<AsyncPgConnection>::new_with_config(db_url, config);
 
-    let pool_async = Pool::builder().max_size(num_connections).build(manager);
-    match tokio::time::timeout(DB_TIMEOUT, pool_async).await {
-        Ok(Ok(pool)) => {
-            let conn = pool.get().await?; // Verify the connection succeeded
-            drop(conn);
-            Ok(pool)
-        }
-        Ok(Err(err)) => panic!("Database connection task failed: {:?}", err),
-        Err(_) => panic!(
-            "Database connection timed out after {} secs",
-            DB_TIMEOUT.as_secs()
-        ),
-    }
+    let pool = Pool::builder(manager)
+        .build()
+        .expect("Failed to create connection pool");
+    Ok(pool)
 }
 
 #[macro_export]
