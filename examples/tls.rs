@@ -1,19 +1,6 @@
 /// cargo run --example tls --features warp -- tls.json
-use std::env;
-use std::fs::File;
 
-use subseq_util::{
-    api::{
-        authenticate, handle_rejection, init_session_store,
-        sessions::{self, store_auth_cookie},
-        AuthenticatedUser,
-    },
-    tracing::setup_tracing,
-    BaseConfig, InnerConfig,
-};
-use warp::{Filter, Rejection, Reply};
-use warp_sessions::{MemoryStore, SessionWithStore};
-
+#[cfg(feature = "warp")]
 pub async fn hello_world(
     user: AuthenticatedUser,
     session: SessionWithStore<MemoryStore>,
@@ -24,6 +11,31 @@ pub async fn hello_world(
 
 #[tokio::main]
 async fn main() {
+    warp_main().await;
+}
+
+#[cfg(not(feature = "warp"))]
+async fn warp_main() {
+    panic!("This example requires the warp feature to be enabled.");
+}
+
+#[cfg(feature = "warp")]
+async fn warp_main() {
+    use std::env;
+    use std::fs::File;
+
+    use subseq_util::{
+        api::{
+            authenticate, handle_rejection, init_session_store,
+            sessions::{self, store_auth_cookie},
+            AuthenticatedUser,
+        },
+        tracing::setup_tracing,
+        BaseConfig, InnerConfig,
+    };
+    use warp::{Filter, Rejection, Reply};
+    use warp_sessions::{MemoryStore, SessionWithStore};
+
     setup_tracing("example", None);
     let args: Vec<String> = env::args().collect();
     let conf_path = args.last().expect("Need a configuration file").clone();

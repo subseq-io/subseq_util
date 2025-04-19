@@ -1,6 +1,6 @@
 [package]
 name = "subseq_util"
-version = "0.5.4"
+version = "0.6.0"
 edition = "2021"
 authors = ["Teague Lasser"]
 
@@ -47,6 +47,10 @@ uuid = { version = "1.8.0", features = ["v4", "serde"] }
 warp = { version = "0.3.6", features = ["tls"], optional = true }
 warp-sessions = { version = "1.0.19", optional = true }
 log = "0.4.26"
+
+[dev-dependencies.tokio]
+version = "1.35.1"
+features = ["sync", "macros", "rt-multi-thread", "time"]
 
 [features]
 default = []

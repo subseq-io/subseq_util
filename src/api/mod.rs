@@ -142,6 +142,12 @@ pub mod sessions {
     pub use super::axum::sessions::*;
 }
 
+#[cfg(feature = "axum")]
+pub mod integrations {
+    #[cfg(feature = "axum")]
+    pub use super::axum::integrations::*;
+}
+
 #[cfg(feature = "warp")]
 pub use self::sessions::authenticate;
 

@@ -1,16 +1,35 @@
 pub mod email;
+pub mod integrations;
 pub mod sessions;
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use axum::{
     http::{header, StatusCode},
     response::{IntoResponse, Response},
 };
-use serde_json::json;
+use serde_json::{json, Value};
+use uuid::Uuid;
 
 use super::{AnyhowError, AuthRejectReason, RejectReason};
-use crate::{oidc::IdentityProvider, tables::DbPool, ChannelRouter};
+use crate::{oidc::IdentityProvider, tables::DbPool, ChannelRouter, UserId};
+
+pub trait Integration {
+    fn name(&self) -> &'static str;
+    fn create(
+        &self,
+        pool: Arc<DbPool>,
+        user_id: UserId,
+        data: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Uuid, RejectReason>> + Send>>;
+    fn get(
+        &self,
+        pool: Arc<DbPool>,
+        user_id: UserId,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, RejectReason>> + Send>>;
+}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -18,6 +37,7 @@ pub struct AppState {
     pub idp: Arc<IdentityProvider>,
     pub router: ChannelRouter,
     pub base_url: String,
+    pub integrations: Vec<Arc<dyn Integration + Send + Sync>>,
 }
 
 impl IntoResponse for AnyhowError {
