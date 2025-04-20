@@ -144,8 +144,8 @@ pub mod sessions {
 
 #[cfg(feature = "axum")]
 pub mod integrations {
-    #[cfg(feature = "axum")]
     pub use super::axum::integrations::*;
+    pub use super::axum::Integration;
 }
 
 #[cfg(feature = "warp")]
