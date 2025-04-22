@@ -34,6 +34,7 @@ pub trait Integration {
 #[derive(Clone)]
 pub struct AppState {
     pub db_pool: Arc<DbPool>,
+    pub priority_db_pool: Arc<DbPool>,
     pub idp: Arc<IdentityProvider>,
     pub router: ChannelRouter,
     pub base_url: String,

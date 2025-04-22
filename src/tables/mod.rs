@@ -1,3 +1,6 @@
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::Duration;
+
 pub mod email;
 pub mod users;
 
@@ -6,7 +9,6 @@ use diesel::{ConnectionError, ConnectionResult};
 use diesel_async::pooled_connection::{AsyncDieselConnectionManager, ManagerConfig, PoolError};
 use diesel_async::AsyncPgConnection;
 use futures_util::future::{BoxFuture, FutureExt};
-use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::get_cert_pool;
 pub use crate::tables::email::{gen_rand_string, EmailVerification, UnverifiedEmailTable};
@@ -85,6 +87,7 @@ pub async fn establish_connection_pool(
     db_url: &str,
     secure: bool,
     size: usize,
+    timeout: Duration,
 ) -> anyhow::Result<DbPool> {
     let mut config = ManagerConfig::default();
     if secure {
@@ -100,6 +103,8 @@ pub async fn establish_connection_pool(
 
     let pool = Pool::builder(manager)
         .max_size(size)
+        .wait_timeout(Some(timeout))
+        .recycle_timeout(Some(timeout))
         .build()
         .expect("Failed to create connection pool");
     Ok(pool)
