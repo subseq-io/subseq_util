@@ -5,6 +5,7 @@ pub mod email;
 pub mod users;
 
 use deadpool::managed::{Manager as DeadpoolManager, Metrics, Pool, RecycleResult};
+use deadpool::Runtime;
 use diesel::{ConnectionError, ConnectionResult};
 use diesel_async::pooled_connection::{AsyncDieselConnectionManager, ManagerConfig, PoolError};
 use diesel_async::AsyncPgConnection;
@@ -103,6 +104,7 @@ pub async fn establish_connection_pool(
 
     let pool = Pool::builder(manager)
         .max_size(size)
+        .runtime(Runtime::Tokio1)
         .wait_timeout(Some(timeout))
         .recycle_timeout(Some(timeout))
         .build()
