@@ -73,11 +73,11 @@ mod tests {
     use std::pin::Pin;
     use std::sync::Arc;
 
+    use function_name::named;
     use serde_json::{json, Value};
 
     use crate::api::axum::Integration;
-    use crate::server::DatabaseConfig;
-    use crate::tables::establish_connection_pool;
+    use crate::tables::harness::{to_pg_db_name, DbHarness};
     use crate::tables::DbPool;
     use crate::tables::UserId;
     use uuid::Uuid;
@@ -110,8 +110,9 @@ mod tests {
     #[tokio::test]
     #[named]
     async fn test_get_integrations() {
+        let db_name = to_pg_db_name(function_name!());
         let harness = DbHarness::new("localhost", "development", &db_name, None).await;
-        let pool = harness.pool().await;
+        let db_pool = harness.pool().await;
         let integrations: Vec<Arc<dyn Integration + Send + Sync>> = vec![Arc::new(TestIntegration)];
 
         let result = get_integrations(db_pool, UserId(Uuid::new_v4()), integrations)
