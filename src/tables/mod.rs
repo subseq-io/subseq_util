@@ -179,6 +179,7 @@ impl diesel::result::DatabaseErrorInformation for ValidationErrorMessage {
 }
 
 pub mod harness {
+    use super::{establish_connection_pool, DbPool};
     use crate::server::DatabaseConfig;
     use diesel::migration::MigrationSource;
     use diesel::prelude::*;
@@ -186,6 +187,8 @@ pub mod harness {
     use diesel_async::async_connection_wrapper::AsyncConnectionWrapper;
     use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
     use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+    use std::sync::Arc;
+    use std::time::Duration;
 
     pub const AUTH_MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations/");
 
@@ -347,6 +350,15 @@ pub mod harness {
                 db_conf,
                 db_name: database,
             }
+        }
+
+        pub async fn pool(&self) -> Arc<DbPool> {
+            let url = self.db_conf.db_url(self.db_name.as_str());
+            Arc::new(
+                establish_connection_pool(&url, false, 1, Duration::from_secs(5))
+                    .await
+                    .expect("pool"),
+            )
         }
 
         pub async fn conn(&self) -> AsyncPgConnection {

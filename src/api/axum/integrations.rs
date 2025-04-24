@@ -108,22 +108,11 @@ mod tests {
     }
 
     #[tokio::test]
+    #[named]
     async fn test_get_integrations() {
-        let db_conf = DatabaseConfig {
-            username: "postgres".to_string(),
-            password: Some("development".to_string()),
-            host: "localhost".to_string(),
-            port: 5432,
-            require_ssl: false,
-        };
-        let url = db_conf.db_url("postgres");
+        let harness = DbHarness::new("localhost", "development", &db_name, None).await;
+        let pool = harness.pool().await;
         let integrations: Vec<Arc<dyn Integration + Send + Sync>> = vec![Arc::new(TestIntegration)];
-
-        let db_pool = Arc::new(
-            establish_connection_pool(&url, false, 1)
-                .await
-                .expect("Failed to establish connection pool"),
-        );
 
         let result = get_integrations(db_pool, UserId(Uuid::new_v4()), integrations)
             .await
