@@ -112,7 +112,7 @@ mod tests {
     async fn test_get_integrations() {
         let db_name = to_pg_db_name(function_name!());
         let harness = DbHarness::new("localhost", "development", &db_name, None).await;
-        let db_pool = harness.pool().await;
+        let db_pool = harness.pool(1).await;
         let integrations: Vec<Arc<dyn Integration + Send + Sync>> = vec![Arc::new(TestIntegration)];
 
         let result = get_integrations(db_pool, UserId(Uuid::new_v4()), integrations)

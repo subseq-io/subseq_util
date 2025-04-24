@@ -352,10 +352,10 @@ pub mod harness {
             }
         }
 
-        pub async fn pool(&self) -> Arc<DbPool> {
+        pub async fn pool(&self, limit: usize) -> Arc<DbPool> {
             let url = self.db_conf.db_url(self.db_name.as_str());
             Arc::new(
-                establish_connection_pool(&url, false, 1, Duration::from_secs(5))
+                establish_connection_pool(&url, false, limit, Duration::from_secs(5))
                     .await
                     .expect("pool"),
             )
