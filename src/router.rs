@@ -1,4 +1,4 @@
-use anymap::{Map, any::Any};
+use anymap::{any::Any, Map};
 use std::sync::{Arc, Mutex};
 use tokio::sync::{broadcast, mpsc};
 
@@ -20,12 +20,6 @@ impl Default for ChannelRouter {
         Self::new()
     }
 }
-
-#[deprecated(
-    since = "0.5.0",
-    note = "Use the `ChannelRouter` struct instead of the `Router` struct."
-)]
-pub type Router = ChannelRouter;
 
 impl ChannelRouter {
     pub fn new() -> Self {

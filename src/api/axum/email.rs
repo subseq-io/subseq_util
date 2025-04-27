@@ -35,6 +35,7 @@ async fn verify_email_handler<E: UnverifiedEmailTable, U: UserTable, UIT: UserId
     let user = U::get(&mut conn, auth_user.id())
         .await
         .ok_or_else(|| RejectReason::not_found(format!("UserTable {}", auth_user.id())))?;
+    tracing::debug!("Verifying email for user id {:?}", user.id());
     let verified = E::get_pending_verification(&mut conn, &query.id)
         .await
         .map_err(|_| RejectReason::not_found(format!("UnverifiedEmailTable {}", query.id)))?;
