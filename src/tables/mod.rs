@@ -9,6 +9,7 @@ use deadpool::Runtime;
 use diesel::{ConnectionError, ConnectionResult};
 use diesel_async::pooled_connection::{AsyncDieselConnectionManager, ManagerConfig, PoolError};
 use diesel_async::AsyncPgConnection;
+use diesel_migrations::{embed_migrations, EmbeddedMigrations};
 use futures_util::future::{BoxFuture, FutureExt};
 
 use crate::get_cert_pool;
@@ -178,19 +179,57 @@ impl diesel::result::DatabaseErrorInformation for ValidationErrorMessage {
     }
 }
 
-pub mod harness {
-    use super::{establish_connection_pool, DbPool};
-    use crate::server::DatabaseConfig;
+pub const AUTH_MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations/");
+
+pub fn run_migrations(
+    url: &str,
+    server_migrations: Option<EmbeddedMigrations>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     use diesel::migration::MigrationSource;
-    use diesel::prelude::*;
-    use diesel::{pg::Pg, sql_query};
+    use diesel::pg::Pg;
     use diesel_async::async_connection_wrapper::AsyncConnectionWrapper;
+    use diesel_migrations::MigrationHarness;
+    use std::thread::spawn;
+
+    let url = url.to_string();
+    spawn(
+        move || -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            let mut connection =
+                <AsyncConnectionWrapper<AsyncPgConnection> as diesel::Connection>::establish(&url)?;
+
+            for mig in
+                <EmbeddedMigrations as MigrationSource<Pg>>::migrations(&AUTH_MIGRATIONS).unwrap()
+            {
+                eprintln!("migration: {}", mig.name());
+            }
+            connection.run_pending_migrations(AUTH_MIGRATIONS)?;
+            if let Some(server_migrations) = server_migrations {
+                for mig in
+                    <EmbeddedMigrations as MigrationSource<Pg>>::migrations(&server_migrations)
+                        .unwrap()
+                {
+                    eprintln!("migration: {}", mig.name());
+                }
+                connection.run_pending_migrations(server_migrations)?;
+            }
+            Ok(())
+        },
+    )
+    .join()
+    .unwrap()
+    .unwrap();
+    Ok(())
+}
+
+pub mod harness {
+    use super::{establish_connection_pool, run_migrations, DbPool};
+    use crate::server::DatabaseConfig;
+    use diesel::prelude::*;
+    use diesel::sql_query;
     use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
-    use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+    use diesel_migrations::EmbeddedMigrations;
     use std::sync::Arc;
     use std::time::Duration;
-
-    pub const AUTH_MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations/");
 
     pub fn to_pg_db_name(name: &str) -> String {
         let mut db_name = String::new();
@@ -232,43 +271,6 @@ pub mod harness {
             .load::<Table>(connection)
             .await
             .map(|tables| tables.into_iter().map(|t| t.tablename).collect())
-    }
-
-    fn run_migrations(
-        url: &str,
-        server_migrations: Option<EmbeddedMigrations>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-        use std::thread::spawn;
-        let url = url.to_string();
-        spawn(
-            move || -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-                let mut connection =
-                    <AsyncConnectionWrapper<AsyncPgConnection> as diesel::Connection>::establish(
-                        &url,
-                    )?;
-
-                for mig in <EmbeddedMigrations as MigrationSource<Pg>>::migrations(&AUTH_MIGRATIONS)
-                    .unwrap()
-                {
-                    eprintln!("migration: {}", mig.name());
-                }
-                connection.run_pending_migrations(AUTH_MIGRATIONS)?;
-                if let Some(server_migrations) = server_migrations {
-                    for mig in
-                        <EmbeddedMigrations as MigrationSource<Pg>>::migrations(&server_migrations)
-                            .unwrap()
-                    {
-                        eprintln!("migration: {}", mig.name());
-                    }
-                    connection.run_pending_migrations(server_migrations)?;
-                }
-                Ok(())
-            },
-        )
-        .join()
-        .unwrap()
-        .unwrap();
-        Ok(())
     }
 
     pub struct DbHarness {
