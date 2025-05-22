@@ -1,7 +1,6 @@
 use std::task::{Context, Poll};
 
 use axum::{
-    async_trait,
     extract::{FromRequestParts, Query, Request, State},
     http::{
         header::{AUTHORIZATION, CACHE_CONTROL, COOKIE, EXPIRES, SET_COOKIE},
@@ -192,18 +191,23 @@ where
     }
 }
 
-#[async_trait]
 impl<S> FromRequestParts<S> for AuthenticatedUser
 where
     S: Send + Sync + ValidatesIdentity,
 {
     type Rejection = StatusCode;
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        parts
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl futures_util::Future<Output = Result<Self, <Self as FromRequestParts<S>>::Rejection>>
+           + std::marker::Send {
+        let result = parts
             .extensions
             .get::<AuthenticatedUser>()
             .cloned()
-            .ok_or(StatusCode::UNAUTHORIZED)
+            .ok_or(StatusCode::UNAUTHORIZED);
+
+        Box::pin(async move { result })
     }
 }
 
