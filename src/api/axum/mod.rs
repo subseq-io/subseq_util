@@ -38,6 +38,7 @@ pub struct AppState {
     pub idp: Arc<IdentityProvider>,
     pub router: ChannelRouter,
     pub base_url: String,
+    pub admin_url: Option<String>,
     pub integrations: Vec<Arc<dyn Integration + Send + Sync>>,
 }
 
