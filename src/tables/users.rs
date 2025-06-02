@@ -12,56 +12,7 @@ use diesel_async::AsyncPgConnection;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    Serialize,
-    Deserialize,
-    Default,
-    AsExpression,
-    FromSqlRow,
-)]
-#[diesel(sql_type = diesel::sql_types::Uuid)]
-pub struct UserId(pub Uuid);
-
-impl fmt::Display for UserId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl<DB> FromSql<diesel::sql_types::Uuid, DB> for UserId
-where
-    DB: Backend,
-    Uuid: FromSql<diesel::sql_types::Uuid, DB>,
-{
-    fn from_sql(bytes: DB::RawValue<'_>) -> diesel::deserialize::Result<Self> {
-        let uuid = Uuid::from_sql(bytes)?;
-        Ok(UserId(uuid))
-    }
-}
-
-impl<DB> ToSql<diesel::sql_types::Uuid, DB> for UserId
-where
-    DB: Backend,
-    Uuid: ToSql<diesel::sql_types::Uuid, DB>,
-{
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, DB>) -> diesel::serialize::Result {
-        self.0.to_sql(out)
-    }
-}
-
-impl FromStr for UserId {
-    type Err = uuid::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(UserId(Uuid::parse_str(s)?))
-    }
-}
+crate::uuid_type!(UserId);
 
 pub enum UserAccountType {
     Admin,
