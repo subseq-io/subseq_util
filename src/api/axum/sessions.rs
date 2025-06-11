@@ -16,7 +16,9 @@ use axum_extra::extract::CookieJar as AxumCookieJar;
 use cookie::{Cookie, CookieJar, SameSite};
 use futures_util::future::BoxFuture;
 use hyper::body::Incoming;
-use openidconnect::{core::CoreIdTokenClaims, AuthorizationCode, Nonce, PkceCodeVerifier};
+use openidconnect::{
+    core::CoreIdTokenClaims, AuthorizationCode, ClaimsVerificationError, Nonce, PkceCodeVerifier,
+};
 use serde::Deserialize;
 use time::Duration;
 use tower::Service;
@@ -68,7 +70,10 @@ fn split_bearer(header: Option<&str>) -> Option<OidcToken> {
 }
 
 impl ValidatesIdentity for AppState {
-    fn validate_token(&self, token: &OidcToken) -> anyhow::Result<CoreIdTokenClaims> {
+    fn validate_token(
+        &self,
+        token: &OidcToken,
+    ) -> Result<CoreIdTokenClaims, ClaimsVerificationError> {
         self.idp.validate_token(token)
     }
 

@@ -6,10 +6,7 @@ use openidconnect::core::{
 };
 use openidconnect::reqwest::Error as RequestError;
 use openidconnect::{
-    AccessToken, AccessTokenHash, AuthorizationCode, ClientId, ClientSecret, CsrfToken,
-    EndSessionUrl, HttpRequest, HttpResponse, IssuerUrl, Nonce, OAuth2TokenResponse,
-    PkceCodeChallenge, PkceCodeVerifier, ProviderMetadataWithLogout, RedirectUrl, RefreshToken,
-    Scope, TokenResponse,
+    AccessToken, AccessTokenHash, AuthorizationCode, ClaimsVerificationError, ClientId, ClientSecret, CsrfToken, EndSessionUrl, HttpRequest, HttpResponse, IssuerUrl, Nonce, OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier, ProviderMetadataWithLogout, RedirectUrl, RefreshToken, Scope, SignatureVerificationError, SigningError, TokenResponse
 };
 use reqwest::{redirect::Policy, Client};
 use serde::{Deserialize, Serialize};
@@ -240,7 +237,7 @@ impl IdentityProvider {
         Ok(oidc_token)
     }
 
-    pub fn validate_token(&self, token: &OidcToken) -> AnyResult<CoreIdTokenClaims> {
+    pub fn validate_token(&self, token: &OidcToken) -> Result<CoreIdTokenClaims, ClaimsVerificationError> {
         let verifier = self.client.id_token_verifier();
         let id_token = &token.id_token;
         tracing::trace!("claims");
@@ -249,11 +246,28 @@ impl IdentityProvider {
 
         if let Some(expected_access_token_hash) = claims.access_token_hash() {
             tracing::trace!("in hash");
-            let actual_access_token_hash =
-                AccessTokenHash::from_token(&token.access_token, &id_token.signing_alg()?)?;
+            let signing_alg = match id_token.signing_alg() {
+                Ok(alg) => alg,
+                Err(_) => return Err(ClaimsVerificationError::Unsupported(
+                    "ID token signing algorithm is not supported".to_string()
+                ))
+            };
+            let actual_access_token_hash = match AccessTokenHash::from_token(&token.access_token, &signing_alg) {
+                Ok(hash) => hash,
+                Err(err) => return Err(ClaimsVerificationError::SignatureVerification(
+                    match err {
+                        SigningError::CryptoError => SignatureVerificationError::CryptoError("Crypto error while calculating access token hash".to_string()),
+                        SigningError::UnsupportedAlg(alg) => SignatureVerificationError::UnsupportedAlg(alg),
+                        SigningError::Other(msg) => SignatureVerificationError::Other(msg),
+                        _ => SignatureVerificationError::Other("Unknown error while calculating access token hash".to_string()),
+                    }
+                ))
+            };
             tracing::trace!("after hash get");
             if actual_access_token_hash != *expected_access_token_hash {
-                return Err(anyhow!("Invalid access token"));
+                return Err(ClaimsVerificationError::SignatureVerification(
+                    SignatureVerificationError::Other("Access token hash does not match ID token".to_string())
+                ));
             }
             tracing::trace!("after hash check");
         }

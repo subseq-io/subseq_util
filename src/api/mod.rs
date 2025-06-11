@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context, Result as AnyResult};
 use email_address::EmailAddress;
 use openidconnect::core::CoreIdTokenClaims;
+use openidconnect::ClaimsVerificationError;
 use serde::Serialize;
 use uuid::Uuid;
 
@@ -40,7 +41,7 @@ pub struct AuthenticatedUser {
 }
 
 pub trait ValidatesIdentity {
-    fn validate_token(&self, token: &OidcToken) -> anyhow::Result<CoreIdTokenClaims>;
+    fn validate_token(&self, token: &OidcToken) -> Result<CoreIdTokenClaims, ClaimsVerificationError>;
     fn refresh_token(
         &self,
         token: OidcToken,
@@ -54,15 +55,55 @@ impl AuthenticatedUser {
     ) -> AnyResult<(Self, Option<OidcToken>)> {
         let (claims, token) = match idp.validate_token(&token) {
             Ok(claims) => (claims, None),
-            Err(_) => {
+            Err(err) => {
                 // Try to refresh
-                tracing::trace!("Refresh happening");
-                let token = idp.refresh_token(token).await.context("token refresh")?;
-                tracing::trace!("Refresh complete");
-                (
-                    idp.validate_token(&token).context("validate_token")?,
-                    Some(token),
-                )
+                tracing::trace!("Refresh happening: {:?}", err);
+                match err {
+                    ClaimsVerificationError::Expired(_) => {
+                        let token = idp.refresh_token(token).await.context("token refresh")?;
+                        tracing::trace!("Refresh complete");
+                        (
+                            idp.validate_token(&token).context("validate_token")?,
+                            Some(token),
+                        )
+                    }
+                    ClaimsVerificationError::InvalidAudience(other) => {
+                        tracing::trace!("Invalid audience: {:?}", other);
+                        return Err(anyhow!("Invalid audience: {}", other));
+                    }
+                    ClaimsVerificationError::InvalidAuthContext(other) => {
+                        tracing::trace!("Invalid auth context: {:?}", other);
+                        return Err(anyhow!("Invalid auth context: {}", other));
+                    }
+                    ClaimsVerificationError::InvalidAuthTime(other) => {
+                        tracing::trace!("Invalid auth time: {:?}", other);
+                        return Err(anyhow!("Invalid auth time: {}", other));
+                    }
+                    ClaimsVerificationError::InvalidIssuer(other) => {
+                        tracing::trace!("Invalid issuer: {:?}", other);
+                        return Err(anyhow!("Invalid issuer: {}", other));
+                    }
+                    ClaimsVerificationError::InvalidNonce(other) => {
+                        tracing::trace!("Invalid nonce: {:?}", other);
+                        return Err(anyhow!("Invalid nonce: {}", other));
+                    }
+                    ClaimsVerificationError::InvalidSubject(other) => {
+                        tracing::trace!("Invalid subject: {:?}", other);
+                        return Err(anyhow!("Invalid subject: {}", other));
+                    }
+                    ClaimsVerificationError::SignatureVerification(other) => {
+                        tracing::trace!("Signature verification error: {:?}", other);
+                        return Err(anyhow!("Signature verification error: {}", other));
+                    }
+                    ClaimsVerificationError::Unsupported(other) => {
+                        tracing::trace!("Unsupported claims verification error: {:?}", other);
+                        return Err(anyhow!("Unsupported claims verification error: {}", other));
+                    }
+                    _ => {
+                        tracing::trace!("Other claims verification error");
+                        return Err(anyhow!("Claims verification error"));
+                    }
+                }
             }
         };
         tracing::trace!("Claims");

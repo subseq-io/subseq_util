@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 use cookie::{Cookie, SameSite};
 use lazy_static::lazy_static;
-use openidconnect::{core::CoreIdTokenClaims, AuthorizationCode, Nonce, PkceCodeVerifier};
+use openidconnect::{
+    core::CoreIdTokenClaims, AuthorizationCode, ClaimsVerificationError, Nonce, PkceCodeVerifier,
+};
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 use urlencoding::decode;
@@ -222,7 +224,10 @@ lazy_static! {
 }
 
 impl ValidatesIdentity for Arc<IdentityProvider> {
-    fn validate_token(&self, token: &OidcToken) -> anyhow::Result<CoreIdTokenClaims> {
+    fn validate_token(
+        &self,
+        token: &OidcToken,
+    ) -> Result<CoreIdTokenClaims, ClaimsVerificationError> {
         IdentityProvider::validate_token(self, token)
     }
 
