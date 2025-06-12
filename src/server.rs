@@ -4,6 +4,8 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use url::Url;
 
+use crate::oidc::AllowedOtherAudiences;
+
 pub trait EnvFilledConfig: Sized {
     fn fill_from_env(self) -> Result<Self, env::VarError>;
 }
@@ -63,6 +65,7 @@ pub struct OidcConfig {
     pub idp_admin_url: Option<Url>,
     pub redirect_url: Url,
     pub client_id: String,
+    pub allowed_other_audiences: Option<AllowedOtherAudiences>,
     pub client_secret: Option<String>,
 }
 
@@ -96,6 +99,7 @@ impl EnvFilledConfig for OidcConfig {
             idp_url,
             idp_admin_url,
             redirect_url,
+            allowed_other_audiences: self.allowed_other_audiences,
             client_id: env::var("OIDC_CLIENT_ID").unwrap_or(self.client_id),
             client_secret: Some(env::var("OIDC_CLIENT_SECRET")?),
         })

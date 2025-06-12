@@ -6,7 +6,7 @@ use openidconnect::core::{
 };
 use openidconnect::reqwest::Error as RequestError;
 use openidconnect::{
-    AccessToken, AccessTokenHash, AuthorizationCode, ClaimsVerificationError, ClientId, ClientSecret, CsrfToken, EndSessionUrl, HttpRequest, HttpResponse, IssuerUrl, Nonce, OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier, ProviderMetadataWithLogout, RedirectUrl, RefreshToken, Scope, SignatureVerificationError, SigningError, TokenResponse
+    AccessToken, AccessTokenHash, Audience, AuthorizationCode, ClaimsVerificationError, ClientId, ClientSecret, CsrfToken, EndSessionUrl, HttpRequest, HttpResponse, IssuerUrl, Nonce, OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier, ProviderMetadataWithLogout, RedirectUrl, RefreshToken, Scope, SignatureVerificationError, SigningError, TokenResponse
 };
 use reqwest::{redirect::Policy, Client};
 use serde::{Deserialize, Serialize};
@@ -137,14 +137,34 @@ impl OidcCredentials {
     }
 }
 
+// Workaround to partially tag enum
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[serde(rename_all="snake_case")]
+pub enum Any {
+    Any
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum AllowedOtherAudiences {
+    List(Vec<String>),
+    Any(Any),
+}
+
+enum AllowedOtherAudiencesInternal {
+    List(Vec<Audience>),
+    Any,
+}
+
 pub struct IdentityProvider {
     client: CoreClient,
+    allowed_other_audiences: Option<AllowedOtherAudiencesInternal>,
     base_url: Url,
     logout_url: EndSessionUrl,
 }
 
 impl IdentityProvider {
-    pub async fn new(oidc: &OidcCredentials, idp_url: &Url) -> AnyResult<Self> {
+    pub async fn new(oidc: &OidcCredentials, allowed_other_audiences: Option<AllowedOtherAudiences>, idp_url: &Url) -> AnyResult<Self> {
         tracing::info!("OIDC server: {}", idp_url);
         let config = provider_metadata(idp_url).await?;
         let logout_url = config
@@ -160,8 +180,18 @@ impl IdentityProvider {
         )
         .set_redirect_uri(oidc.redirect_url.clone());
 
+        let allowed_other_audiences = match allowed_other_audiences {
+            Some(AllowedOtherAudiences::Any(_)) => Some(AllowedOtherAudiencesInternal::Any),
+            Some(AllowedOtherAudiences::List(list)) => {
+                let audiences: Vec<Audience> = list.into_iter().map(Audience::new).collect();
+                Some(AllowedOtherAudiencesInternal::List(audiences))
+            }
+            None => None,
+        };
+
         Ok(Self {
             client,
+            allowed_other_audiences,
             base_url: oidc.base_url.clone(),
             logout_url,
         })
@@ -238,7 +268,20 @@ impl IdentityProvider {
     }
 
     pub fn validate_token(&self, token: &OidcToken) -> Result<CoreIdTokenClaims, ClaimsVerificationError> {
-        let verifier = self.client.id_token_verifier();
+        let verifier = self.client.id_token_verifier()
+            .set_other_audience_verifier_fn(|aud: &Audience| {
+                match &self.allowed_other_audiences {
+                    Some(AllowedOtherAudiencesInternal::Any) => true,
+                    Some(AllowedOtherAudiencesInternal::List(list)) => {
+                        if list.contains(aud) {
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    None => false
+                }
+            });
         let id_token = &token.id_token;
         tracing::trace!("claims");
         let claims = id_token.claims(&verifier, &token.nonce)?;
