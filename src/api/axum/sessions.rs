@@ -17,7 +17,8 @@ use cookie::{Cookie, CookieJar, SameSite};
 use futures_util::future::BoxFuture;
 use hyper::body::Incoming;
 use openidconnect::{
-    core::CoreIdTokenClaims, AuthorizationCode, ClaimsVerificationError, Nonce, PkceCodeVerifier,
+    core::{CoreIdToken, CoreIdTokenClaims},
+    AuthorizationCode, ClaimsVerificationError, Nonce, PkceCodeVerifier,
 };
 use serde::Deserialize;
 use time::Duration;
@@ -60,29 +61,40 @@ impl AuthRejectReason {
     }
 }
 
-fn split_bearer(header: Option<&str>) -> Option<OidcToken> {
-    let header = header?;
-    let (name, token) = match header.split_once(' ') {
+fn validate_bearer<S: ValidatesIdentity>(
+    state: &S,
+    authorization: &str,
+) -> Result<(CoreIdToken, CoreIdTokenClaims), ClaimsVerificationError> {
+    let (name, token) = match authorization.split_once(' ') {
         Some((name, token)) => (Some(name.trim()), token.trim()),
-        None => (None, header.trim()),
+        None => (None, authorization.trim()),
     };
     tracing::trace!("Splitting Bearer token from ({:?}, {:?})", name, token);
     if let Some(name) = name {
         if name.eq_ignore_ascii_case("Bearer") {
-            parse_auth_cookie(&token).ok()
+            state.validate_bearer(&token)
         } else {
-            None
+            Err(ClaimsVerificationError::Other(
+                "Invalid authorization scheme".to_string(),
+            ))
         }
     } else {
-        parse_auth_cookie(&token).ok()
+        state.validate_bearer(&token)
     }
 }
 
 impl ValidatesIdentity for AppState {
+    fn validate_bearer(
+        &self,
+        token: &str,
+    ) -> Result<(CoreIdToken, CoreIdTokenClaims), ClaimsVerificationError> {
+        self.idp.validate_bearer(token)
+    }
+
     fn validate_token(
         &self,
         token: &OidcToken,
-    ) -> Result<CoreIdTokenClaims, ClaimsVerificationError> {
+    ) -> Result<(CoreIdToken, CoreIdTokenClaims), ClaimsVerificationError> {
         self.idp.validate_token(token)
     }
 
@@ -113,35 +125,48 @@ where
         tracing::trace!("Authorizing request");
 
         // Get the token, preferring Bearer tokens first
-        let token = if let Some(token) = split_bearer(authorization.and_then(|hv| hv.to_str().ok()))
-        {
-            tracing::trace!("Authorization header");
-            Some(token)
+        let (auth_user, token) = if let Some(bearer) = authorization.and_then(|h| h.to_str().ok()) {
+            tracing::trace!("Authorization header found: {}", bearer);
+            let (token, claims) = match validate_bearer(state, bearer) {
+                Ok(token) => {
+                    tracing::trace!("Bearer token parsed successfully");
+                    token
+                }
+                Err(err) => {
+                    tracing::warn!("Failed to parse bearer token: {}", err);
+                    return None;
+                }
+            };
+            let auth_user = AuthenticatedUser::from_claims(token, claims)
+                .await
+                .map_err(|err| {
+                    tracing::warn!("Failed to create authenticated user: {}", err);
+                    err
+                })
+                .ok()?;
+            (auth_user, None)
         } else {
             let auth_cookie = cookies.get(AUTH_COOKIE);
             if let Some(auth_cookie) = auth_cookie {
                 tracing::trace!("Auth cookie");
-                Some(
-                    parse_auth_cookie(auth_cookie.value())
-                        .map_err(|err| {
-                            tracing::warn!("Invalid authorization token: {:?}", err);
-                            err
-                        })
-                        .ok()?,
-                )
+                let token = parse_auth_cookie(auth_cookie.value())
+                    .map_err(|err| {
+                        tracing::warn!("Invalid authorization token: {:?}", err);
+                        err
+                    })
+                    .ok()?;
+                AuthenticatedUser::validate_session(state, token)
+                    .await
+                    .map_err(|err| {
+                        tracing::debug!("Invalid session token: {}", err);
+                        err
+                    })
+                    .ok()?
             } else {
                 tracing::trace!("No token");
-                None
+                return None;
             }
-        }?;
-
-        let (auth_user, token) = AuthenticatedUser::validate_session(state, token)
-            .await
-            .map_err(|err| {
-                tracing::debug!("Invalid session token: {}", err);
-                err
-            })
-            .ok()?;
+        };
 
         if let Some(reset_token) = token {
             tracing::trace!("Reset token");
@@ -406,34 +431,4 @@ pub fn routes(store: MemoryStore) -> Router<AppState> {
         .route("/auth", get(auth))
         .route("/auth/logout", get(logout))
         .layer(layer)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tracing_test::traced_test;
-
-    #[test]
-    #[traced_test]
-    fn test_bearer_token() {
-        let good_json_str = r#"{"id_token":"eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWUsImlhdCI6MTc0OTY5NzA4MiwiZXhwIjoxNzQ5NzAwNjgyLCJpc3MiOiJodHRwczovL3N1YnNlcS5jb3JwL2lkZW50Iiwic2NvcGVzIjpbImppcmEtZm9yZ2UiXX0.nHXI9rq3lSLMw92hcm3ok0rjRvvAV5_IVQvnEptZQg0","access_token":"test_access_token","nonce":"nonce_token"}"#;
-        let good_token: OidcToken =
-            serde_json::from_str(good_json_str).expect("Failed to parse expected OidcToken");
-        let good_bearer = format!("Bearer {}", good_json_str);
-        assert_eq!(
-            split_bearer(Some(good_bearer.as_str())),
-            Some(good_token.clone())
-        );
-        let good_missing_bearer = format!("{}", good_json_str);
-        assert_eq!(
-            split_bearer(Some(&good_missing_bearer.as_str())),
-            Some(good_token.clone())
-        );
-
-        let bad_json = r#"{"id_token":"test_id_token"}"#;
-        let bad_bearer = format!("Bearer {}", bad_json);
-        assert_eq!(split_bearer(Some(bad_bearer.as_str())), None);
-        let bad_missing_bearer = format!("{}", bad_json);
-        assert_eq!(split_bearer(Some(bad_missing_bearer.as_str())), None);
-    }
 }
