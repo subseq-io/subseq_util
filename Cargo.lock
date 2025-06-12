@@ -2937,7 +2937,7 @@ checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
 
 [[package]]
 name = "subseq_util"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "anyhow",
  "anymap",
@@ -2957,7 +2957,6 @@ dependencies = [
  "hyper 0.14.28",
  "hyper 1.4.1",
  "lazy_static",
- "log",
  "openidconnect",
  "rand 0.8.5",
  "reqwest",
@@ -2972,7 +2971,6 @@ dependencies = [
  "tokio-postgres",
  "tokio-postgres-rustls",
  "tower 0.5.2",
- "tower-http",
  "tower-sessions",
  "tracing",
  "tracing-subscriber",
@@ -3364,22 +3362,6 @@ dependencies = [
  "futures-util",
  "http 1.1.0",
  "parking_lot",
- "pin-project-lite",
- "tower-layer",
- "tower-service",
-]
-
-[[package]]
-name = "tower-http"
-version = "0.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fdb0c213ca27a9f57ab69ddb290fd80d970922355b83ae380b395d3986b8a2e"
-dependencies = [
- "base64 0.22.1",
- "bitflags 2.5.0",
- "bytes",
- "http 1.1.0",
- "mime",
  "pin-project-lite",
  "tower-layer",
  "tower-service",

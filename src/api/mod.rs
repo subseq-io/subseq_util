@@ -41,7 +41,11 @@ pub struct AuthenticatedUser {
 }
 
 pub trait ValidatesIdentity {
-    fn validate_token(&self, token: &OidcToken) -> Result<CoreIdTokenClaims, ClaimsVerificationError>;
+    fn validate_bearer(&self, token: &str) -> Result<CoreIdTokenClaims, ClaimsVerificationError>;
+    fn validate_token(
+        &self,
+        token: &OidcToken,
+    ) -> Result<CoreIdTokenClaims, ClaimsVerificationError>;
     fn refresh_token(
         &self,
         token: OidcToken,
@@ -49,6 +53,42 @@ pub trait ValidatesIdentity {
 }
 
 impl AuthenticatedUser {
+    pub async fn from_claims(claims: CoreIdTokenClaims) -> AnyResult<Self> {
+        let user_id = Uuid::parse_str(claims.subject().as_str())
+            .context("Failed to parse UUID from claims.subject()")?;
+        let user_name = claims
+            .preferred_username()
+            .ok_or_else(|| anyhow!("No username in claims"))?
+            .as_str();
+        let user_email = claims
+            .email()
+            .map(|email| email.as_str())
+            .or_else(|| {
+                if EmailAddress::is_valid(user_name) {
+                    Some(user_name)
+                } else {
+                    None
+                }
+            })
+            .ok_or_else(|| anyhow!("No email in claims"))?;
+        let email_verified = claims.email_verified().unwrap_or(false);
+        let given_name = claims
+            .given_name()
+            .and_then(|name| name.get(None).map(|name| name.to_string()));
+        let family_name = claims
+            .family_name()
+            .and_then(|name| name.get(None).map(|name| name.to_string()));
+
+        Ok(Self {
+            id: user_id,
+            username: user_name.to_string(),
+            email: user_email.to_string(),
+            email_verified,
+            given_name,
+            family_name,
+        })
+    }
+
     pub async fn validate_session<S: ValidatesIdentity>(
         idp: &S,
         token: OidcToken,
@@ -106,44 +146,8 @@ impl AuthenticatedUser {
                 }
             }
         };
-        tracing::trace!("Claims");
-        let user_id =
-            Uuid::parse_str(claims.subject().as_str()).context("UUID claims.subject()")?;
-        let user_name = claims
-            .preferred_username()
-            .ok_or_else(|| anyhow!("No username in claims"))?
-            .as_str();
-        let user_email = claims
-            .email()
-            .map(|email| email.as_str())
-            .or_else(|| {
-                if EmailAddress::is_valid(user_name) {
-                    Some(user_name)
-                } else {
-                    None
-                }
-            })
-            .ok_or_else(|| anyhow!("No email in claims"))?;
-        let email_verified = claims.email_verified().unwrap_or(false);
-        let given_name = claims
-            .given_name()
-            .and_then(|name| name.get(None).map(|name| name.to_string()));
-        let family_name = claims
-            .family_name()
-            .and_then(|name| name.get(None).map(|name| name.to_string()));
-
-        tracing::trace!("Token validated");
-        Ok((
-            Self {
-                id: user_id,
-                username: user_name.to_string(),
-                email: user_email.to_string(),
-                email_verified,
-                given_name,
-                family_name,
-            },
-            token,
-        ))
+        let auth_user = Self::from_claims(claims).await?;
+        Ok((auth_user, token))
     }
 
     pub fn id(&self) -> UserId {
