@@ -61,11 +61,20 @@ impl AuthRejectReason {
 }
 
 fn split_bearer(header: Option<&str>) -> Option<OidcToken> {
-    let (name, token) = header?.split_once(' ')?;
-    if name == "Bearer" {
-        parse_auth_cookie(&token).ok()
+    let header = header?;
+    let (name, token) = match header.split_once(' ') {
+        Some((name, token)) => (Some(name.trim()), token.trim()),
+        None => (None, header.trim()),
+    };
+    tracing::trace!("Splitting Bearer token from ({:?}, {:?})", name, token);
+    if let Some(name) = name {
+        if name.eq_ignore_ascii_case("Bearer") {
+            parse_auth_cookie(&token).ok()
+        } else {
+            None
+        }
     } else {
-        None
+        parse_auth_cookie(&token).ok()
     }
 }
 
@@ -355,8 +364,10 @@ fn auth_cookie<'a>(token: OidcToken) -> Cookie<'a> {
 }
 
 fn parse_auth_cookie(cookie_str: &str) -> Result<OidcToken, AuthRejectReason> {
-    serde_json::from_str(cookie_str)
-        .map_err(|err| AuthRejectReason::invalid_session_token(format!("cookie: {}", err)))
+    serde_json::from_str(cookie_str).map_err(|err| {
+        tracing::warn!("Failed to parse auth cookie: {}", err);
+        AuthRejectReason::invalid_session_token(format!("cookie: {}", err))
+    })
 }
 
 async fn logout(
@@ -395,4 +406,34 @@ pub fn routes(store: MemoryStore) -> Router<AppState> {
         .route("/auth", get(auth))
         .route("/auth/logout", get(logout))
         .layer(layer)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tracing_test::traced_test;
+
+    #[test]
+    #[traced_test]
+    fn test_bearer_token() {
+        let good_json_str = r#"{"id_token":"eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWUsImlhdCI6MTc0OTY5NzA4MiwiZXhwIjoxNzQ5NzAwNjgyLCJpc3MiOiJodHRwczovL3N1YnNlcS5jb3JwL2lkZW50Iiwic2NvcGVzIjpbImppcmEtZm9yZ2UiXX0.nHXI9rq3lSLMw92hcm3ok0rjRvvAV5_IVQvnEptZQg0","access_token":"test_access_token","nonce":"nonce_token"}"#;
+        let good_token: OidcToken =
+            serde_json::from_str(good_json_str).expect("Failed to parse expected OidcToken");
+        let good_bearer = format!("Bearer {}", good_json_str);
+        assert_eq!(
+            split_bearer(Some(good_bearer.as_str())),
+            Some(good_token.clone())
+        );
+        let good_missing_bearer = format!("{}", good_json_str);
+        assert_eq!(
+            split_bearer(Some(&good_missing_bearer.as_str())),
+            Some(good_token.clone())
+        );
+
+        let bad_json = r#"{"id_token":"test_id_token"}"#;
+        let bad_bearer = format!("Bearer {}", bad_json);
+        assert_eq!(split_bearer(Some(bad_bearer.as_str())), None);
+        let bad_missing_bearer = format!("{}", bad_json);
+        assert_eq!(split_bearer(Some(bad_missing_bearer.as_str())), None);
+    }
 }

@@ -69,6 +69,16 @@ pub struct OidcToken {
     nonce: Nonce,
 }
 
+impl PartialEq for OidcToken {
+    fn eq(&self, other: &Self) -> bool {
+        self.id_token == other.id_token
+            && self.access_token.secret() == other.access_token.secret()
+            && self.refresh_token.as_ref().map(|r| r.secret())
+                == other.refresh_token.as_ref().map(|r| r.secret())
+            && self.nonce == other.nonce
+    }
+}
+
 impl OidcToken {
     fn from_token_response(token: CoreTokenResponse, nonce: Nonce) -> AnyResult<Self> {
         tracing::trace!("from_token_response");
