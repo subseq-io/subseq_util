@@ -6,7 +6,10 @@ use openidconnect::core::{
 };
 use openidconnect::reqwest::Error as RequestError;
 use openidconnect::{
-    AccessToken, AccessTokenHash, Audience, AuthorizationCode, ClaimsVerificationError, ClientId, ClientSecret, CsrfToken, EndSessionUrl, HttpRequest, HttpResponse, IssuerUrl, Nonce, OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier, ProviderMetadataWithLogout, RedirectUrl, RefreshToken, Scope, SignatureVerificationError, SigningError, TokenResponse
+    AccessToken, AccessTokenHash, Audience, AuthorizationCode, ClaimsVerificationError, ClientId,
+    ClientSecret, CsrfToken, EndSessionUrl, HttpRequest, HttpResponse, IssuerUrl, Nonce,
+    OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier, ProviderMetadataWithLogout,
+    RedirectUrl, RefreshToken, Scope, SignatureVerificationError, SigningError, TokenResponse,
 };
 use reqwest::{redirect::Policy, Client};
 use serde::{Deserialize, Serialize};
@@ -139,9 +142,9 @@ impl OidcCredentials {
 
 // Workaround to partially tag enum
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
-#[serde(rename_all="snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum Any {
-    Any
+    Any,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -164,7 +167,11 @@ pub struct IdentityProvider {
 }
 
 impl IdentityProvider {
-    pub async fn new(oidc: &OidcCredentials, allowed_other_audiences: Option<AllowedOtherAudiences>, idp_url: &Url) -> AnyResult<Self> {
+    pub async fn new(
+        oidc: &OidcCredentials,
+        allowed_other_audiences: Option<AllowedOtherAudiences>,
+        idp_url: &Url,
+    ) -> AnyResult<Self> {
         tracing::info!("OIDC server: {}", idp_url);
         let config = provider_metadata(idp_url).await?;
         let logout_url = config
@@ -267,20 +274,24 @@ impl IdentityProvider {
         Ok(oidc_token)
     }
 
-    pub fn validate_token(&self, token: &OidcToken) -> Result<CoreIdTokenClaims, ClaimsVerificationError> {
-        let verifier = self.client.id_token_verifier()
-            .set_other_audience_verifier_fn(|aud: &Audience| {
-                match &self.allowed_other_audiences {
-                    Some(AllowedOtherAudiencesInternal::Any) => true,
-                    Some(AllowedOtherAudiencesInternal::List(list)) => {
-                        if list.contains(aud) {
-                            true
-                        } else {
-                            false
-                        }
+    pub fn validate_token(
+        &self,
+        token: &OidcToken,
+    ) -> Result<CoreIdTokenClaims, ClaimsVerificationError> {
+        tracing::trace!("validate_token");
+        let verifier = self
+            .client
+            .id_token_verifier()
+            .set_other_audience_verifier_fn(|aud: &Audience| match &self.allowed_other_audiences {
+                Some(AllowedOtherAudiencesInternal::Any) => true,
+                Some(AllowedOtherAudiencesInternal::List(list)) => {
+                    if list.contains(aud) {
+                        true
+                    } else {
+                        false
                     }
-                    None => false
                 }
+                None => false,
             });
         let id_token = &token.id_token;
         tracing::trace!("claims");
@@ -291,25 +302,36 @@ impl IdentityProvider {
             tracing::trace!("in hash");
             let signing_alg = match id_token.signing_alg() {
                 Ok(alg) => alg,
-                Err(_) => return Err(ClaimsVerificationError::Unsupported(
-                    "ID token signing algorithm is not supported".to_string()
-                ))
+                Err(_) => {
+                    return Err(ClaimsVerificationError::Unsupported(
+                        "ID token signing algorithm is not supported".to_string(),
+                    ))
+                }
             };
-            let actual_access_token_hash = match AccessTokenHash::from_token(&token.access_token, &signing_alg) {
-                Ok(hash) => hash,
-                Err(err) => return Err(ClaimsVerificationError::SignatureVerification(
-                    match err {
-                        SigningError::CryptoError => SignatureVerificationError::CryptoError("Crypto error while calculating access token hash".to_string()),
-                        SigningError::UnsupportedAlg(alg) => SignatureVerificationError::UnsupportedAlg(alg),
-                        SigningError::Other(msg) => SignatureVerificationError::Other(msg),
-                        _ => SignatureVerificationError::Other("Unknown error while calculating access token hash".to_string()),
+            let actual_access_token_hash =
+                match AccessTokenHash::from_token(&token.access_token, &signing_alg) {
+                    Ok(hash) => hash,
+                    Err(err) => {
+                        return Err(ClaimsVerificationError::SignatureVerification(match err {
+                            SigningError::CryptoError => SignatureVerificationError::CryptoError(
+                                "Crypto error while calculating access token hash".to_string(),
+                            ),
+                            SigningError::UnsupportedAlg(alg) => {
+                                SignatureVerificationError::UnsupportedAlg(alg)
+                            }
+                            SigningError::Other(msg) => SignatureVerificationError::Other(msg),
+                            _ => SignatureVerificationError::Other(
+                                "Unknown error while calculating access token hash".to_string(),
+                            ),
+                        }))
                     }
-                ))
-            };
+                };
             tracing::trace!("after hash get");
             if actual_access_token_hash != *expected_access_token_hash {
                 return Err(ClaimsVerificationError::SignatureVerification(
-                    SignatureVerificationError::Other("Access token hash does not match ID token".to_string())
+                    SignatureVerificationError::Other(
+                        "Access token hash does not match ID token".to_string(),
+                    ),
                 ));
             }
             tracing::trace!("after hash check");

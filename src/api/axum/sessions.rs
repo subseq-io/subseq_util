@@ -101,13 +101,17 @@ where
         authorization: Option<&HeaderValue>,
         cookies: &mut CookieJar,
     ) -> Option<AuthenticatedUser> {
+        tracing::trace!("Authorizing request");
+
         // Get the token, preferring Bearer tokens first
         let token = if let Some(token) = split_bearer(authorization.and_then(|hv| hv.to_str().ok()))
         {
+            tracing::trace!("Authorization header");
             Some(token)
         } else {
             let auth_cookie = cookies.get(AUTH_COOKIE);
             if let Some(auth_cookie) = auth_cookie {
+                tracing::trace!("Auth cookie");
                 Some(
                     parse_auth_cookie(auth_cookie.value())
                         .map_err(|err| {
@@ -117,6 +121,7 @@ where
                         .ok()?,
                 )
             } else {
+                tracing::trace!("No token");
                 None
             }
         }?;
