@@ -17,7 +17,8 @@ use cookie::{Cookie, CookieJar, SameSite};
 use futures_util::future::BoxFuture;
 use hyper::body::Incoming;
 use openidconnect::{
-    core::CoreIdTokenClaims, AuthorizationCode, ClaimsVerificationError, Nonce, PkceCodeVerifier,
+    core::{CoreIdToken, CoreIdTokenClaims},
+    AuthorizationCode, ClaimsVerificationError, Nonce, PkceCodeVerifier,
 };
 use serde::Deserialize;
 use time::Duration;
@@ -63,7 +64,7 @@ impl AuthRejectReason {
 fn validate_bearer<S: ValidatesIdentity>(
     state: &S,
     authorization: &str,
-) -> Result<CoreIdTokenClaims, ClaimsVerificationError> {
+) -> Result<(CoreIdToken, CoreIdTokenClaims), ClaimsVerificationError> {
     let (name, token) = match authorization.split_once(' ') {
         Some((name, token)) => (Some(name.trim()), token.trim()),
         None => (None, authorization.trim()),
@@ -83,14 +84,17 @@ fn validate_bearer<S: ValidatesIdentity>(
 }
 
 impl ValidatesIdentity for AppState {
-    fn validate_bearer(&self, token: &str) -> Result<CoreIdTokenClaims, ClaimsVerificationError> {
+    fn validate_bearer(
+        &self,
+        token: &str,
+    ) -> Result<(CoreIdToken, CoreIdTokenClaims), ClaimsVerificationError> {
         self.idp.validate_bearer(token)
     }
 
     fn validate_token(
         &self,
         token: &OidcToken,
-    ) -> Result<CoreIdTokenClaims, ClaimsVerificationError> {
+    ) -> Result<(CoreIdToken, CoreIdTokenClaims), ClaimsVerificationError> {
         self.idp.validate_token(token)
     }
 
@@ -123,7 +127,7 @@ where
         // Get the token, preferring Bearer tokens first
         let (auth_user, token) = if let Some(bearer) = authorization.and_then(|h| h.to_str().ok()) {
             tracing::trace!("Authorization header found: {}", bearer);
-            let token = match validate_bearer(state, bearer) {
+            let (token, claims) = match validate_bearer(state, bearer) {
                 Ok(token) => {
                     tracing::trace!("Bearer token parsed successfully");
                     token
@@ -133,7 +137,7 @@ where
                     return None;
                 }
             };
-            let auth_user = AuthenticatedUser::from_claims(token)
+            let auth_user = AuthenticatedUser::from_claims(token, claims)
                 .await
                 .map_err(|err| {
                     tracing::warn!("Failed to create authenticated user: {}", err);

@@ -296,7 +296,7 @@ impl IdentityProvider {
     pub fn validate_bearer(
         &self,
         token: &str,
-    ) -> Result<CoreIdTokenClaims, ClaimsVerificationError> {
+    ) -> Result<(CoreIdToken, CoreIdTokenClaims), ClaimsVerificationError> {
         tracing::trace!("validate_bearer");
         let verifier = self
             .client
@@ -318,13 +318,13 @@ impl IdentityProvider {
         tracing::trace!("claims");
         let claims = id_token.claims(&verifier, OtherPartyNonce)?;
         tracing::trace!("after claims");
-        Ok(claims.clone())
+        Ok((id_token.clone(), claims.clone()))
     }
 
     pub fn validate_token(
         &self,
         token: &OidcToken,
-    ) -> Result<CoreIdTokenClaims, ClaimsVerificationError> {
+    ) -> Result<(CoreIdToken, CoreIdTokenClaims), ClaimsVerificationError> {
         tracing::trace!("validate_token");
         let verifier = self
             .client
@@ -383,7 +383,7 @@ impl IdentityProvider {
             }
             tracing::trace!("after hash check");
         }
-        Ok(claims.clone())
+        Ok((id_token.clone(), claims.clone()))
     }
 }
 

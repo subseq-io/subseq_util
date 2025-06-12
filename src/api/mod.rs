@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Context, Result as AnyResult};
 use email_address::EmailAddress;
-use openidconnect::core::CoreIdTokenClaims;
+use openidconnect::core::{CoreIdToken, CoreIdTokenClaims};
 use openidconnect::ClaimsVerificationError;
 use serde::Serialize;
 use uuid::Uuid;
@@ -29,23 +29,18 @@ pub enum AuthRejectReason {
 }
 
 #[derive(Clone, Debug, Serialize)]
-#[non_exhaustive]
 pub struct AuthenticatedUser {
     pub(super) id: Uuid,
-
-    pub(super) username: String,
-    pub(super) email: String,
-    pub(super) email_verified: bool,
-    pub(super) given_name: Option<String>,
-    pub(super) family_name: Option<String>,
+    pub(super) authorization: CoreIdToken,
+    pub(super) claims: CoreIdTokenClaims,
 }
 
 pub trait ValidatesIdentity {
-    fn validate_bearer(&self, token: &str) -> Result<CoreIdTokenClaims, ClaimsVerificationError>;
+    fn validate_bearer(&self, token: &str) -> Result<(CoreIdToken, CoreIdTokenClaims), ClaimsVerificationError>;
     fn validate_token(
         &self,
         token: &OidcToken,
-    ) -> Result<CoreIdTokenClaims, ClaimsVerificationError>;
+    ) -> Result<(CoreIdToken, CoreIdTokenClaims), ClaimsVerificationError>;
     fn refresh_token(
         &self,
         token: OidcToken,
@@ -53,14 +48,15 @@ pub trait ValidatesIdentity {
 }
 
 impl AuthenticatedUser {
-    pub async fn from_claims(claims: CoreIdTokenClaims) -> AnyResult<Self> {
+    pub async fn from_claims(token: CoreIdToken, claims: CoreIdTokenClaims) -> AnyResult<Self> {
         let user_id = Uuid::parse_str(claims.subject().as_str())
             .context("Failed to parse UUID from claims.subject()")?;
+
+        // Must include username and email
         let user_name = claims
             .preferred_username()
-            .ok_or_else(|| anyhow!("No username in claims"))?
-            .as_str();
-        let user_email = claims
+            .ok_or_else(|| anyhow!("No username in claims"))?;
+        claims
             .email()
             .map(|email| email.as_str())
             .or_else(|| {
@@ -71,21 +67,10 @@ impl AuthenticatedUser {
                 }
             })
             .ok_or_else(|| anyhow!("No email in claims"))?;
-        let email_verified = claims.email_verified().unwrap_or(false);
-        let given_name = claims
-            .given_name()
-            .and_then(|name| name.get(None).map(|name| name.to_string()));
-        let family_name = claims
-            .family_name()
-            .and_then(|name| name.get(None).map(|name| name.to_string()));
-
         Ok(Self {
             id: user_id,
-            username: user_name.to_string(),
-            email: user_email.to_string(),
-            email_verified,
-            given_name,
-            family_name,
+            authorization: token,
+            claims,
         })
     }
 
@@ -93,19 +78,17 @@ impl AuthenticatedUser {
         idp: &S,
         token: OidcToken,
     ) -> AnyResult<(Self, Option<OidcToken>)> {
-        let (claims, token) = match idp.validate_token(&token) {
-            Ok(claims) => (claims, None),
+        let (token, claims, refresh_token) = match idp.validate_token(&token) {
+            Ok(result) => (result.0, result.1, None),
             Err(err) => {
                 // Try to refresh
                 tracing::trace!("Refresh happening: {:?}", err);
                 match err {
                     ClaimsVerificationError::Expired(_) => {
-                        let token = idp.refresh_token(token).await.context("token refresh")?;
+                        let refresh_token = idp.refresh_token(token).await.context("token refresh")?;
                         tracing::trace!("Refresh complete");
-                        (
-                            idp.validate_token(&token).context("validate_token")?,
-                            Some(token),
-                        )
+                        let (token, claims) = idp.validate_token(&refresh_token).context("validate_token")?;
+                        (token, claims, Some(refresh_token))
                     }
                     ClaimsVerificationError::InvalidAudience(other) => {
                         tracing::trace!("Invalid audience: {:?}", other);
@@ -146,8 +129,12 @@ impl AuthenticatedUser {
                 }
             }
         };
-        let auth_user = Self::from_claims(claims).await?;
-        Ok((auth_user, token))
+        let auth_user = Self::from_claims(token, claims).await?;
+        Ok((auth_user, refresh_token))
+    }
+
+    pub fn authorization(&self) -> &CoreIdToken {
+        &self.authorization
     }
 
     pub fn id(&self) -> UserId {
@@ -155,23 +142,43 @@ impl AuthenticatedUser {
     }
 
     pub fn username(&self) -> String {
-        self.username.clone()
+        // Guaranteed by `from_claims` that preferred_username is present
+        self.claims.preferred_username().unwrap().to_string()
     }
 
     pub fn email(&self) -> String {
-        self.email.clone()
+        // Guaranteed by `from_claims` that email is present and valid
+        let user_name = self.username();
+        self.claims
+            .email()
+            .map(|email| email.as_str())
+            .or_else(|| {
+                if EmailAddress::is_valid(&user_name) {
+                    Some(&user_name)
+                } else {
+                    None
+                }
+            })
+            .expect("No email in claims or username is not a valid email")
+            .to_string()
     }
 
     pub fn email_verified(&self) -> bool {
-        self.email_verified
+        self.claims.email_verified().unwrap_or(false)
     }
 
     pub fn given_name(&self) -> Option<String> {
-        self.given_name.clone()
+        self.claims
+            .given_name()
+            .and_then(|name| name.get(None))
+            .map(|name| name.to_string())
     }
 
     pub fn family_name(&self) -> Option<String> {
-        self.family_name.clone()
+        self.claims
+            .family_name()
+            .and_then(|name| name.get(None))
+            .map(|name| name.to_string())
     }
 }
 
