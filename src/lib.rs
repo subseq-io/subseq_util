@@ -1,3 +1,4 @@
+pub mod ids;
 pub mod prelude;
 pub mod typed_uuid;
 
