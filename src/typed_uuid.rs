@@ -12,7 +12,7 @@ pub trait FromTypedUuid: TypeTag + Sized {
     fn from_typed_uuid(value: TypedUuid<Self>) -> Self;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TypedUuid<T>
 where
     T: TypeTag,
