@@ -154,6 +154,30 @@ mod tests {
     }
 
     #[test]
+    fn from_str_rejects_mismatched_typed_prefix() {
+        let result = TypedUuid::<TaskId>::from_str("graph_a1a2a3a4b1b2c1c2d1d2d3d4d5d6d7d8");
+
+        assert!(
+            result.is_err(),
+            "mismatched typed prefix should not parse as task id"
+        );
+
+        let result = TypedUuid::<TaskId>::from_str("tas_a1a2a3a4b1b2c1c2d1d2d3d4d5d6d7d8");
+
+        assert!(
+            result.is_err(),
+            "mismatched typed prefix should not parse as task id"
+        );
+
+        let result = TypedUuid::<TaskId>::from_str("tasks_a1a2a3a4b1b2c1c2d1d2d3d4d5d6d7d8");
+
+        assert!(
+            result.is_err(),
+            "mismatched typed prefix should not parse as task id"
+        );
+    }
+
+    #[test]
     fn serde_serializes_with_tag_and_deserializes_with_from_str() {
         let expected = fixture_uuid();
         let typed = TypedUuid::<TaskId>::new(expected);
