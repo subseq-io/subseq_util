@@ -8,6 +8,10 @@ pub trait TypeTag {
     fn tag() -> &'static str;
 }
 
+pub trait FromTypedUuid: TypeTag + Sized {
+    fn from_typed_uuid(value: TypedUuid<Self>) -> Self;
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TypedUuid<T>
 where
@@ -39,6 +43,15 @@ where
 
     pub fn to_string(&self) -> String {
         format!("{}_{}", T::tag(), self.uuid.simple().to_string())
+    }
+}
+
+impl<T> FromTypedUuid for T
+where
+    T: TypeTag + From<uuid::Uuid>,
+{
+    fn from_typed_uuid(value: TypedUuid<Self>) -> Self {
+        Self::from(value.uuid)
     }
 }
 
@@ -80,6 +93,27 @@ where
     }
 }
 
+#[macro_export]
+macro_rules! impl_typed_uuid_path_extractor {
+    ($typed_id:ty) => {
+        impl<S> ::axum::extract::FromRequestParts<S> for $typed_id
+        where
+            S: Send + Sync,
+            $typed_id: $crate::typed_uuid::FromTypedUuid,
+        {
+            type Rejection = ::axum::extract::rejection::PathRejection;
+
+            async fn from_request_parts(
+                parts: &mut ::axum::http::request::Parts,
+                state: &S,
+            ) -> Result<Self, Self::Rejection> {
+                let typed = <$crate::typed_uuid::TypedUuid<$typed_id> as ::axum::extract::FromRequestParts<S>>::from_request_parts(parts, state).await?;
+                Ok(<$typed_id as $crate::typed_uuid::FromTypedUuid>::from_typed_uuid(typed))
+            }
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -95,7 +129,7 @@ mod tests {
     };
     use uuid::Uuid;
 
-    use super::{TypeTag, TypedUuid};
+    use super::{FromTypedUuid, TypeTag, TypedUuid};
 
     #[derive(Debug)]
     struct TaskId(pub Uuid);
@@ -106,11 +140,13 @@ mod tests {
         }
     }
 
-    impl From<TypedUuid<TaskId>> for TaskId {
-        fn from(value: TypedUuid<TaskId>) -> Self {
-            Self(value.uuid)
+    impl From<Uuid> for TaskId {
+        fn from(value: Uuid) -> Self {
+            Self(value)
         }
     }
+
+    crate::impl_typed_uuid_path_extractor!(TaskId);
 
     fn fixture_uuid() -> Uuid {
         Uuid::from_str("a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8").expect("fixture uuid should parse")
@@ -207,9 +243,9 @@ mod tests {
     fn chain_from_typed_uuid_to_task_id() {
         let tagged = "task_a1a2a3a4b1b2c1c2d1d2d3d4d5d6d7d8";
 
-        let task_id: TaskId = TypedUuid::<TaskId>::from_str(tagged)
-            .expect("typed uuid should parse")
-            .into();
+        let task_id = TaskId::from_typed_uuid(
+            TypedUuid::<TaskId>::from_str(tagged).expect("typed uuid should parse"),
+        );
 
         assert_eq!(task_id.0, fixture_uuid());
     }
@@ -220,6 +256,17 @@ mod tests {
         where
             T: TypeTag + Send,
             TypedUuid<T>: FromRequestParts<()>,
+        {
+        }
+
+        assert_from_request_parts_impl::<TaskId>();
+    }
+
+    #[test]
+    fn extractor_impl_exists_for_base_typed_id() {
+        fn assert_from_request_parts_impl<T>()
+        where
+            T: FromRequestParts<()>,
         {
         }
 
@@ -240,6 +287,23 @@ mod tests {
         assert!(
             matches!(rejection, PathRejection::MissingPathParams(_)),
             "extractor should forward axum Path rejection behavior"
+        );
+    }
+
+    #[test]
+    fn base_type_extractor_uses_axum_path_rejection_contract() {
+        let request = Request::builder()
+            .uri("/tasks/anything")
+            .body(())
+            .expect("request should build");
+        let (mut parts, _) = request.into_parts();
+
+        let rejection =
+            block_on(TaskId::from_request_parts(&mut parts, &())).expect_err("should reject");
+
+        assert!(
+            matches!(rejection, PathRejection::MissingPathParams(_)),
+            "extractor should forward axum Path rejection behavior for base type"
         );
     }
 }
