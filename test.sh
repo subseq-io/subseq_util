@@ -1,2 +1,4 @@
 #!/bin/bash
-cargo test --features axum
+set -e
+cargo test
+cargo test --all-features

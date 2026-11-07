@@ -46,6 +46,16 @@ where
     }
 }
 
+/// Typed wire form `{tag}_{uuid simple hex}` for a raw uuid.
+pub fn wire<T: TypeTag>(uuid: uuid::Uuid) -> String {
+    TypedUuid::<T>::new(uuid).to_string()
+}
+
+/// Parses an id from its typed wire form or a bare uuid; a different tag is an error.
+pub fn parse_external_id<T: FromTypedUuid>(value: &str) -> Result<T, uuid::Error> {
+    TypedUuid::<T>::from_str(value).map(T::from_typed_uuid)
+}
+
 impl<T> FromTypedUuid for T
 where
     T: TypeTag + From<uuid::Uuid>,
