@@ -12,3 +12,9 @@ This repository now only contains the utility functions and types. The other com
 * For stripe handling: [https://github.com/subseq-io/subseq_stripe](subseq_stripe)
 * For task management: [https://github.com/subseq-io/subseq_tasks](subseq_tasks)
 * For websocket controls: [https://github.com/subseq-io/subseq_websocket](subseq_websocket)
+
+## Typed ids
+
+`uuid_id_type!(UserId, "user")` defines a uuid newtype that serializes as `user_<hex>` (bare uuids are accepted on input) and extracts from axum paths.
+
+`typed_id!(UserId, "user")` adds `new_v4()`, `nil()`, `wire()` and `From<UserId> for Uuid`. Enable the `sqlx` feature to also get Postgres `Type`/`Encode`/`Decode` (stored as `uuid`), and `schemars` for a `JsonSchema` (string, format `typed-uuid`). Use one macro or the other for a type, not both.
